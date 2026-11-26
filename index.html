@@ -612,6 +612,7 @@ PACKS.de = { name: 'Deutsch', locale: 'de-DE', thousands: '.',
     "Outside": "Außen", "Inside": "Innen",
     "Marks smaller than our damage gauge (the red circle) are normal wear and are not shown.": "Spuren, die kleiner sind als unsere Schadensschablone (der rote Kreis), gelten als normale Abnutzung und werden nicht angezeigt.",
     "Tap a mark if it does not look right.": "Tippen Sie auf eine Markierung, wenn sie nicht stimmt.",
+    "Damage on this van": "Schäden an diesem Van",
     "I checked the van against this report and it matches.": "Ich habe das Fahrzeug mit diesem Bericht verglichen und er stimmt.",
     "Your name": "Ihr Name", "Matches my van": "Stimmt mit meinem Fahrzeug überein", "Something's not on it": "Etwas fehlt im Bericht",
     "Send photos before you leave the parking lot so damage you find is not deducted from your security deposit.": "Senden Sie Fotos, bevor Sie den Parkplatz verlassen, damit gefundene Schäden nicht von Ihrer Kaution abgezogen werden.",
@@ -1902,6 +1903,18 @@ function vcrLegend(host, types) {
 }
 function vcrDrawings(host, marks, layout, tabKey, tappable) {
   clear(host);
+  host.appendChild(el('h3', '', 'Damage on this van'));
+  if (!marks.length) host.appendChild(el('p', '', 'No damage marks on file for this van.'));
+  marks.forEach(function (m) {
+    var r = el('div', 'vrow'), n = el('span', 'vnum', String(m.n)), t = el('div');
+    n.style.background = VCR_COLOR[m.type] || '';
+    t.appendChild(el('b', '', tr((VCR_TYPE[m.type] || [m.type])[0]) + (m.size ? ', ' + tr(vcrSizeWords(m.size)) : ''))); t.appendChild(document.createElement('br'));
+    t.appendChild(el('span', 'muted', vcrPlace(m) + (m.disputed ? ' (' + tr('Under review') + ')' : '')));
+    r.appendChild(n); r.appendChild(t);
+    if (tappable) r.onclick = function () { vcrOpenDispute(m); };
+    host.appendChild(r);
+  });
+  if (tappable && marks.length) host.appendChild(el('p', 'muted', 'Tap a mark if it does not look right.'));
   var tabs = vcrTabs(layout), row = el('div', 'vtabs');
   Object.keys(tabs).forEach(function (k) {
     var b = el('button', 'vtab', tr(tabs[k].name)); b.type = 'button'; b.setAttribute('aria-pressed', k === tabKey ? 'true' : 'false');
@@ -1923,17 +1936,6 @@ function vcrDrawings(host, marks, layout, tabKey, tappable) {
   gt.appendChild(el('div', '', 'Marks smaller than our damage gauge (the red circle) are normal wear and are not shown.'));
   gt.appendChild(el('div', 'muted', 'Tap to see the gauge')); g.appendChild(gt);
   g.setAttribute('role', 'button'); g.onclick = function () { vgOpen(); }; host.appendChild(g);
-  if (!marks.length) host.appendChild(el('p', '', 'No damage marks on file for this van.'));
-  marks.forEach(function (m) {
-    var r = el('div', 'vrow'), n = el('span', 'vnum', String(m.n)), t = el('div');
-    n.style.background = VCR_COLOR[m.type] || '';
-    t.appendChild(el('b', '', tr((VCR_TYPE[m.type] || [m.type])[0]) + (m.size ? ', ' + tr(vcrSizeWords(m.size)) : ''))); t.appendChild(document.createElement('br'));
-    t.appendChild(el('span', 'muted', vcrPlace(m) + (m.disputed ? ' (' + tr('Under review') + ')' : '')));
-    r.appendChild(n); r.appendChild(t);
-    if (tappable) r.onclick = function () { vcrOpenDispute(m); };
-    host.appendChild(r);
-  });
-  if (tappable && marks.length) host.appendChild(el('p', 'muted', 'Tap a mark if it does not look right.'));
 }
 function vcrLoad(ok, fallback) {
   if (!vcrOn()) { fallback(); return; }
