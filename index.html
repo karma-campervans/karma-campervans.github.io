@@ -97,6 +97,7 @@
   .svrow { border-bottom:1px solid var(--line); padding:8px 0; font-size:14px; }
   .svrow .btn { display:inline-block; width:auto; padding:8px 12px; margin:6px 6px 0 0; font-size:14px; }
   .svwho { font-size:13px; color:#555; margin:4px 0 8px; }
+  .svph img { width:96px; height:96px; object-fit:cover; border-radius:6px; margin:6px 6px 0 0; border:1px solid var(--line); background:#eee; }
   .svrange { width:100%; }
   .vgbtn { display:flex; align-items:center; gap:10px; width:100%; border:2px dashed var(--red); background:#fff; color:var(--red); border-radius:10px; padding:10px 12px; font-size:15px; font-weight:700; cursor:pointer; margin:8px 0; text-align:left; }
   .vgbtn .c { width:26px; height:26px; border-radius:50%; border:3px solid var(--red); flex:0 0 26px; box-sizing:border-box; }
@@ -2197,7 +2198,7 @@ function svSaveToken(t) {
 }
 function svOpen() { show('staffvcr'); sv.tok = svToken(); if (!sv.tok) svSignIn(); else svLoad(); }
 function svSignIn() {
-  clear($('svDraw')); clear($('svEd')); var b = $('svBody'); clear(b);
+  clear($('svDraw')); clear($('svEd')); clear($('svPast')); sv.x = null; var b = $('svBody'); clear(b);   // 26 Nov 2026: Past damage is cleared on sign out
   b.appendChild(el('p', '', 'Sign in with the Google account you use for Karma Ops.'));
   var host = el('div'); host.id = 'svGBtn'; b.appendChild(host);
   if (window.KARMA_TEST_TOKEN) { var tb = el('button', 'btn primary', 'Test sign in'); tb.type = 'button'; tb.onclick = function () { svSaveToken(window.KARMA_TEST_TOKEN); svLoad(); }; b.appendChild(tb); return; }
@@ -2228,11 +2229,37 @@ function svExtra() {
   google.script.run.withSuccessHandler(function (x) { if (!x || !sv.data) return; sv.x = x; if (!sv.edit) svRender(); svPast(); })
     .withFailureHandler(function () {}).staffVcrExtra(sv.tok, VAN);
 }
+// Small pictures of the photos on a damage work order (26 Nov 2026). Loaded one at a time; a failure just leaves the picture out.
+var svPhC = {};
+function svWoPhotos(r, wo, ph) {
+  if (!wo || !ph || !ph.length) return;
+  var box = el('div', 'svph'); r.appendChild(box);
+  ph.forEach(function (n) {
+    var im = el('img'), key = VAN + '|' + wo + '|' + n; im.alt = 'Work order photo ' + n; box.appendChild(im);
+    if (svPhC[key]) { im.src = svPhC[key]; return; }
+    google.script.run.withSuccessHandler(function (x) { if (x && x.ok && x.data) { svPhC[key] = x.data; im.src = x.data; } else if (im.parentNode) im.parentNode.removeChild(im); })
+      .withFailureHandler(function () { if (im.parentNode) im.parentNode.removeChild(im); }).staffWoPhoto(sv.tok, VAN, wo, n);
+  });
+}
+// A mark still on the drawing whose work order is done (26 Nov 2026, Jeff: ask, never remove by itself).
+function svFixedRow(b, f, lead) {
+  var r = el('div', 'svrow');
+  r.appendChild(el('b', '', 'Work order done. Remove this mark from the drawing?'));
+  r.appendChild(el('div', 'muted', 'Mark ' + (f.n || '') + (f.type ? ', ' + tr(VCR_TYPE[f.type] ? VCR_TYPE[f.type][0] : f.type) : '') + (f.view && VCR_NAME[f.view] ? ', ' + VCR_NAME[f.view] : '') +
+    '. ' + (f.desc || 'Work order') + '. Done ' + (f.at || '') + (f.by ? ' by ' + f.by : '') + '.'));
+  if (!lead) { r.appendChild(el('div', 'muted', 'A lead decides this.')); b.appendChild(r); return; }
+  var y = el('button', 'btn primary', 'Remove the mark'); y.type = 'button';
+  y.onclick = function () { y.disabled = true; svCall('staffWoFixed', [sv.tok, VAN, f.id, true], svLoad); };
+  var k = el('button', 'btn', 'Keep the mark'); k.type = 'button';
+  k.onclick = function () { k.disabled = true; svCall('staffWoFixed', [sv.tok, VAN, f.id, false], svLoad); };
+  r.appendChild(y); r.appendChild(k); b.appendChild(r);
+}
 function svTodoRow(b, t, lead) {
   var r = el('div', 'svrow');
   r.appendChild(el('b', '', 'Approved damage, not on the drawing yet'));
   r.appendChild(el('div', 'muted', (t.cat ? t.cat + ': ' : '') + (t.desc || 'No description') + '. Opened ' + (t.at || '') + (t.by ? ' by ' + t.by : '') +
-    (t.photos ? '. ' + t.photos + ' photo' + (t.photos > 1 ? 's' : '') + ' on the work order in Karma Ops' : '') + '.'));
+    (t.photos ? '. ' + t.photos + ' photo' + (t.photos > 1 ? 's' : '') + ' on the work order' : '') + '.'));
+  svWoPhotos(r, t.wo, t.ph);
   if (!lead) { r.appendChild(el('div', 'muted', 'A lead places this.')); b.appendChild(r); return; }
   var p1 = el('button', 'btn primary', 'Place on the drawing'); p1.type = 'button';
   p1.onclick = function () { svStartEdit({ id: '', n: 0, view: '', type: '', status: 'New', placeWo: t.wo }, 'driver'); try { $('svDraw').scrollIntoView({ block: 'start' }); } catch (x) {} };
@@ -2257,6 +2284,7 @@ function svPast() {
     var r = el('div', 'svrow');
     r.appendChild(el('b', '', p.kind + (p.at ? ', ' + p.at : '')));
     r.appendChild(el('div', 'muted', (p.text || '') + (p.by ? '. By ' + p.by : '') + (p.note ? '. ' + p.note : '')));
+    svWoPhotos(r, p.wo, p.ph);
     host.appendChild(r);
   });
 }
@@ -2265,10 +2293,11 @@ function svRender() {
   var w = el('div', 'svwho', 'Signed in as ' + d.who.name + ' (' + d.who.role + ')' + (d.who.lead ? '. You can approve, change and remove marks.' : '. Your marks wait for a lead.'));
   var so = el('a', '', ' Sign out'); so.href = '#'; so.onclick = function (e) { e.preventDefault(); try { sessionStorage.removeItem('kstafftok'); } catch (x) {} sv.tok = ''; svSignIn(); }; w.appendChild(so); b.appendChild(w);
   var waiting = d.marks.filter(function (m) { return m.status === 'Pending' || m.status === 'Guest report'; });
-  var todo = (sv.x && sv.x.todo) || [];
-  if (waiting.length || todo.length) {
-    b.appendChild(el('h2', '', 'Waiting (' + (waiting.length + todo.length) + ')'));
+  var todo = (sv.x && sv.x.todo) || [], fixed = (sv.x && sv.x.fixed) || [];
+  if (waiting.length || todo.length || fixed.length) {
+    b.appendChild(el('h2', '', 'Waiting (' + (waiting.length + todo.length + fixed.length) + ')'));
     todo.forEach(function (t) { svTodoRow(b, t, d.who.lead); });
+    fixed.forEach(function (f) { svFixedRow(b, f, d.who.lead); });
     waiting.forEach(function (m) {
       var r = el('div', 'svrow'), placed = m.view && m.x != null;
       r.appendChild(el('b', '', (m.type ? tr(VCR_TYPE[m.type] ? VCR_TYPE[m.type][0] : m.type) : 'Guest photo report') + (m.size ? ', about ' + m.size + ' cm' : '')));
