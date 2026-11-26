@@ -92,6 +92,8 @@
   #vgOver .vgtxt { position:absolute; left:48px; right:14px; bottom:18px; color:#fff; font-size:15px; line-height:1.35; }
   #vgOver .vgtxt .btn { margin-top:10px; }
   #vgOver .vgtxt .btn.ghost { background:transparent; color:#fff; border:2px solid #fff; }
+  .vgbtn { display:flex; align-items:center; gap:10px; width:100%; border:2px dashed var(--red); background:#fff; color:var(--red); border-radius:10px; padding:10px 12px; font-size:15px; font-weight:700; cursor:pointer; margin:8px 0; text-align:left; }
+  .vgbtn .c { width:26px; height:26px; border-radius:50%; border:3px solid var(--red); flex:0 0 26px; box-sizing:border-box; }
   .vviews { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 4px; }
   .vviews button { border:1.5px solid var(--grey); background:#fff; color:var(--grey); border-radius:8px; padding:7px 9px; font-size:13px; font-weight:600; cursor:pointer; }
   .vviews button[aria-pressed=true] { background:var(--grey); color:#fff; }
@@ -262,6 +264,7 @@
   <div class="vchoice" id="vaType"></div>
   <label>About how big?</label>
   <div class="vchoice" id="vaSize"></div>
+  <button type="button" class="vgbtn" id="bVaGauge"><span class="c"></span><span>Damage measuring gauge</span></button>
   <input type="file" accept="image/*" capture="environment" id="vaFile" style="display:none">
   <button class="btn" id="bVaPhoto">Add a photo (required)</button>
   <div class="thumbs" id="vaThumbs"></div>
@@ -287,6 +290,7 @@
 <div id="form" class="view">
   <h1 id="fTitle"></h1>
   <p class="muted" id="fSub"></p>
+  <button type="button" class="btn" id="bFVcr" style="display:none">Open my vehicle condition report</button>
   <div class="card instr" id="fInstr" style="display:none"><b>Quick instructions</b><ul></ul><a class="instr-full" href="#" style="display:none">Full instructions</a></div>
   <div id="fSelfieBox" style="display:none">
     <label id="fSelfieLbl">Selfie with the van (required)</label>
@@ -300,6 +304,7 @@
   <input type="file" accept="video/*" capture="environment" id="fVid" style="display:none">
   <button class="btn" id="bPhotos">Add photos</button>
   <div class="thumbs" id="fThumbs"></div>
+  <button type="button" class="vgbtn" id="bFGauge" style="display:none"><span class="c"></span><span>Damage measuring gauge</span></button>
   <div id="fNext" style="display:none">
     <p class="muted" id="fNextQ" style="display:none">Photo added. What next?</p>
     <button type="button" class="btn" id="bMorePhoto">Add another photo</button>
@@ -2099,6 +2104,17 @@ vcrAddOpen = function (view, layout) {
     b.onclick = function () { if (v !== view) vcrAddOpen(v, layout); };
     w.appendChild(b);
   });
+};
+/* ---- fix pack 3 (25 Nov 2026 19:20): gauge where damage is reported; quick report can open the full VCR ---- */
+$('bVaGauge').onclick = function () { vgOpen(); };
+$('bFGauge').onclick = function () { vgOpen(); };
+$('bFVcr').onclick = function () { vcrView('mine'); };
+var openFormBase3 = openForm;
+openForm = function (type) {
+  openFormBase3(type);
+  var dmg = type === 'Damage' || type === 'Pick Up';
+  $('bFGauge').style.display = dmg ? '' : 'none';
+  $('bFVcr').style.display = (type === 'Damage' && vcrOn()) ? '' : 'none';
 };
 var applyLangVcr = applyLang;
 applyLang = function (l, persist) {
