@@ -92,6 +92,12 @@
   #vgOver .vgtxt { position:absolute; left:48px; right:14px; bottom:18px; color:#fff; font-size:15px; line-height:1.35; }
   #vgOver .vgtxt .btn { margin-top:10px; }
   #vgOver .vgtxt .btn.ghost { background:transparent; color:#fff; border:2px solid #fff; }
+  #svEd { position:sticky; bottom:0; background:#fff; border-top:3px solid var(--red); padding:10px 2px 12px; max-height:62vh; overflow-y:auto; z-index:5; }
+  #svEd:empty { display:none; }
+  .svrow { border-bottom:1px solid var(--line); padding:8px 0; font-size:14px; }
+  .svrow .btn { display:inline-block; width:auto; padding:8px 12px; margin:6px 6px 0 0; font-size:14px; }
+  .svwho { font-size:13px; color:#555; margin:4px 0 8px; }
+  .svrange { width:100%; }
   .vgbtn { display:flex; align-items:center; gap:10px; width:100%; border:2px dashed var(--red); background:#fff; color:var(--red); border-radius:10px; padding:10px 12px; font-size:15px; font-weight:700; cursor:pointer; margin:8px 0; text-align:left; }
   .vgbtn .c { width:26px; height:26px; border-radius:50%; border:3px solid var(--red); flex:0 0 26px; box-sizing:border-box; }
   .vviews { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 4px; }
@@ -273,6 +279,15 @@
   <div class="err" id="vaErr"></div>
   <button class="btn primary" id="bVaSend">Send to Karma</button>
   <button class="back" id="bVaBack">Back</button>
+</div>
+
+<!-- STAFF: condition report marks (25 Nov 2026) -->
+<div id="staffvcr" class="view">
+  <h1>Staff: condition report</h1>
+  <div class="err" id="svErr"></div>
+  <div id="svBody"></div>
+  <div id="svDraw"></div>
+  <div id="svEd"></div>
 </div>
 
 <!-- VCR: review at drop off, and My condition report (25 Nov 2026) -->
@@ -2167,6 +2182,134 @@ openForm = function (type) {
   $('bFGauge').style.display = dmg ? '' : 'none';
   $('bFVcr').style.display = (type === 'Damage' && vcrOn()) ? '' : 'none';
 };
+/* ---- staff page (25 Nov 2026): Google sign in, place, move, approve and remove marks ---- */
+var STAFF_CLIENT_ID = '484799108958-2lnlt0dvjaum83hf4am60aheugtgbeoh.apps.googleusercontent.com';
+var sv = { tok: '', data: null, tab: 'out', edit: null };
+function svToken() { try { var o = JSON.parse(sessionStorage.getItem('kstafftok') || 'null'); if (o && o.exp > Date.now()) return o.t; } catch (e) {} return ''; }
+function svSaveToken(t) {
+  var exp = Date.now() + 50 * 60e3;
+  try { var p = JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); if (p.exp) exp = p.exp * 1000 - 60e3; } catch (e) {}
+  try { sessionStorage.setItem('kstafftok', JSON.stringify({ t: t, exp: exp })); } catch (e) {}
+  sv.tok = t;
+}
+function svOpen() { show('staffvcr'); sv.tok = svToken(); if (!sv.tok) svSignIn(); else svLoad(); }
+function svSignIn() {
+  clear($('svDraw')); clear($('svEd')); var b = $('svBody'); clear(b);
+  b.appendChild(el('p', '', 'Sign in with the Google account you use for Karma Ops.'));
+  var host = el('div'); host.id = 'svGBtn'; b.appendChild(host);
+  if (window.KARMA_TEST_TOKEN) { var tb = el('button', 'btn primary', 'Test sign in'); tb.type = 'button'; tb.onclick = function () { svSaveToken(window.KARMA_TEST_TOKEN); svLoad(); }; b.appendChild(tb); return; }
+  svGis(function () {
+    google.accounts.id.initialize({ client_id: STAFF_CLIENT_ID, callback: function (r) { svSaveToken(r.credential); svLoad(); } });
+    google.accounts.id.renderButton(host, { theme: 'outline', size: 'large', text: 'signin_with', width: 280 });
+  });
+}
+function svGis(cb) {
+  if (window.google && google.accounts && google.accounts.id) { cb(); return; }
+  var keep = window.google && window.google.script;
+  var s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
+  s.onload = function () { if (keep && !(window.google && window.google.script)) { window.google = window.google || {}; window.google.script = keep; } cb(); };
+  s.onerror = function () { $('svErr').textContent = 'Google sign in did not load. Check the signal and try again.'; };
+  document.head.appendChild(s);
+}
+function svCall(fn, args, ok) {
+  $('svErr').textContent = '';
+  google.script.run.withSuccessHandler(ok).withFailureHandler(function (e) {
+    var m = (e && e.message) || 'Could not do that. Try again.'; $('svErr').textContent = m;
+    try { $('svErr').scrollIntoView({ block: 'center' }); } catch (x) {}
+    if (/sign in again/i.test(m)) { try { sessionStorage.removeItem('kstafftok'); } catch (x) {} sv.tok = ''; svSignIn(); }
+  })[fn].apply(null, args);
+}
+function svLoad() { svCall('staffVcr', [sv.tok, VAN], function (r) { sv.data = r; sv.edit = null; svRender(); svEditor(); }); }
+function svRender() {
+  var d = sv.data, b = $('svBody'); clear(b);
+  var w = el('div', 'svwho', 'Signed in as ' + d.who.name + ' (' + d.who.role + ')' + (d.who.lead ? '. You can approve, change and remove marks.' : '. Your marks wait for a lead.'));
+  var so = el('a', '', ' Sign out'); so.href = '#'; so.onclick = function (e) { e.preventDefault(); try { sessionStorage.removeItem('kstafftok'); } catch (x) {} sv.tok = ''; svSignIn(); }; w.appendChild(so); b.appendChild(w);
+  var waiting = d.marks.filter(function (m) { return m.status === 'Pending' || m.status === 'Guest report'; });
+  if (waiting.length) {
+    b.appendChild(el('h2', '', 'Waiting (' + waiting.length + ')'));
+    waiting.forEach(function (m) {
+      var r = el('div', 'svrow'), placed = m.view && m.x != null;
+      r.appendChild(el('b', '', (m.type ? tr(VCR_TYPE[m.type] ? VCR_TYPE[m.type][0] : m.type) : 'Guest photo report') + (m.size ? ', about ' + m.size + ' cm' : '')));
+      r.appendChild(el('div', 'muted', (placed ? VCR_NAME[m.view] + '. ' : 'Not placed on the drawing yet. ') + 'From ' + (m.source || m.by) + (m.at ? ', ' + m.at : '') + (m.photos ? ', ' + m.photos + ' photo' + (m.photos > 1 ? 's' : '') : '') + (m.note ? '. ' + m.note : '')));
+      var e1 = el('button', 'btn', placed ? 'Show and change' : 'Place on the drawing'); e1.type = 'button'; e1.onclick = function () { svStartEdit(m, m.view || 'driver'); }; r.appendChild(e1);
+      if (d.who.lead && m.status === 'Pending' && placed) { var a = el('button', 'btn primary', 'Approve'); a.type = 'button'; a.onclick = function () { svCall('staffApprove', [sv.tok, VAN, m.id], svLoad); }; r.appendChild(a); }
+      b.appendChild(r);
+    });
+  }
+  svDraw();
+}
+function svDraw() {
+  var d = sv.data, host = $('svDraw'); clear(host);
+  var tabs = vcrTabs(d.layout), row = el('div', 'vtabs');
+  Object.keys(tabs).forEach(function (k) {
+    var t = el('button', 'vtab', tabs[k].name); t.type = 'button'; t.setAttribute('aria-pressed', k === sv.tab ? 'true' : 'false');
+    t.onclick = function () { sv.tab = k; svDraw(); }; row.appendChild(t);
+  });
+  host.appendChild(row);
+  host.appendChild(el('p', 'muted', sv.edit ? 'Tap the drawing to move the mark.' : 'Tap a mark to change it, or tap the drawing to add a new mark.'));
+  tabs[sv.tab].views.forEach(function (v) {
+    host.appendChild(el('div', 'vcap', VCR_NAME[v]));
+    var box = el('div', 'vdraw'), im = el('img'); im.alt = VCR_NAME[v]; im.src = vcrImg(v, d.layout); box.appendChild(im);
+    var list = d.marks.filter(function (m) { return m.view === v && (!sv.edit || m.id !== sv.edit.id) && (m.x != null || m.square); })
+      .map(function (m) { var c = {}; for (var k in m) c[k] = m[k]; c.disputed = m.status !== 'Active'; return c; });
+    if (sv.edit && sv.edit.view === v && sv.edit.x != null) list.push({ view: v, type: sv.edit.type || 'other', x: sv.edit.x, y: sv.edit.y, size: sv.edit.size, angle: sv.edit.angle, n: sv.edit.n });
+    vcrOverlay(box, im, list, { onTap: function (m) { if (m.id) { var src = d.marks.filter(function (x) { return x.id === m.id; })[0]; svStartEdit(src, v); } } });
+    im.addEventListener('click', function (e) {
+      var r = im.getBoundingClientRect(); if (!r.width) return;
+      var x = Math.round(Math.min(100, Math.max(0, (e.clientX - r.left) * 100 / r.width)) * 10) / 10, y = Math.round(Math.min(100, Math.max(0, (e.clientY - r.top) * 100 / r.height)) * 10) / 10;
+      if (!sv.edit) sv.edit = { id: '', n: 0, view: v, type: '', size: 8, angle: 0, x: x, y: y, status: 'New', note: '' };
+      else { sv.edit.view = v; sv.edit.x = x; sv.edit.y = y; }
+      svDraw(); svEditor();
+    });
+    host.appendChild(box);
+  });
+  vcrLegend(host, Object.keys(VCR_TYPE));
+}
+function svStartEdit(m, v) {
+  sv.edit = { id: m.id, n: m.n, view: m.view || v, type: m.type || '', size: m.size || 8, angle: m.angle || 0, x: m.x, y: m.y, status: m.status, note: '', by: m.by };
+  sv.tab = vcrTabOf(sv.edit.view); svDraw(); svEditor();
+}
+function svEditor() {
+  var p = $('svEd'); clear(p); var e = sv.edit, d = sv.data; if (!e) return;
+  p.appendChild(el('b', '', (e.id ? (e.n ? 'Mark ' + e.n : 'Mark waiting') : 'New mark') + ': ' + VCR_NAME[e.view] + (e.x == null ? '. Tap the drawing to place it.' : '')));
+  var tc = el('div', 'vchoice');
+  (VCR_GUEST_TYPES[vcrTabOf(e.view)].concat(vcrTabOf(e.view) === 'ws' ? ['wsf'] : [])).forEach(function (t) {
+    var b = el('button'); b.type = 'button'; b.setAttribute('aria-pressed', e.type === t ? 'true' : 'false'); b.appendChild(vcrLegendIcon(t)); b.appendChild(document.createTextNode(VCR_TYPE[t][0]));
+    b.onclick = function () { e.type = t; svEditor(); svDraw(); }; tc.appendChild(b);
+  });
+  p.appendChild(tc);
+  var sl = el('label', '', 'Size: ' + e.size + ' cm'); p.appendChild(sl);
+  var s = document.createElement('input'); s.type = 'range'; s.min = '1'; s.max = '150'; s.step = '1'; s.value = String(e.size); s.className = 'svrange';
+  s.oninput = function () { e.size = Number(this.value); sl.textContent = 'Size: ' + e.size + ' cm'; svDraw(); }; p.appendChild(s);
+  if (['scratch', 'scrape', 'crack'].indexOf(e.type) >= 0) {
+    var al = el('label', '', 'Angle: ' + e.angle + ' degrees'); p.appendChild(al);
+    var a = document.createElement('input'); a.type = 'range'; a.min = '-90'; a.max = '90'; a.step = '5'; a.value = String(e.angle); a.className = 'svrange';
+    a.oninput = function () { e.angle = Number(this.value); al.textContent = 'Angle: ' + e.angle + ' degrees'; svDraw(); }; p.appendChild(a);
+  }
+  var n = document.createElement('input'); n.type = 'text'; n.placeholder = 'Note for the team (optional, never shown to guests)'; n.value = e.note; n.oninput = function () { e.note = this.value; };
+  n.style.cssText = 'width:100%;font-size:16px;padding:8px;margin:6px 0;box-sizing:border-box'; p.appendChild(n);
+  var row = el('div', 'svrow');
+  var sb = el('button', 'btn primary', d.who.lead && !e.id ? 'Save to the report' : 'Save'); sb.type = 'button';
+  sb.onclick = function () {
+    if (e.x == null) { $('svErr').textContent = 'Tap the drawing to place the mark.'; return; }
+    if (!e.type) { $('svErr').textContent = 'Pick what it is.'; return; }
+    svCall('staffSaveMark', [sv.tok, VAN, { id: e.id, view: e.view, x: e.x, y: e.y, type: e.type, size: e.size, angle: e.angle, note: e.note }], svLoad);
+  };
+  row.appendChild(sb);
+  if (d.who.lead && e.id && e.status === 'Pending') { var ap = el('button', 'btn', 'Approve'); ap.type = 'button'; ap.onclick = function () { svCall('staffApprove', [sv.tok, VAN, e.id], svLoad); }; row.appendChild(ap); }
+  if (d.who.lead && e.id) {
+    var rm = el('button', 'btn', 'Remove'); rm.type = 'button';
+    rm.onclick = function () {
+      var why = document.createElement('input'); why.type = 'text'; why.placeholder = 'Why remove it? (required, for example repaired)'; why.style.cssText = 'width:100%;font-size:16px;padding:8px;margin:6px 0;box-sizing:border-box';
+      var go2 = el('button', 'btn', 'Confirm remove'); go2.type = 'button';
+      go2.onclick = function () { if (!why.value.trim()) { $('svErr').textContent = 'A reason is required.'; return; } svCall('staffRemove', [sv.tok, VAN, e.id, why.value.trim()], svLoad); };
+      p.appendChild(why); p.appendChild(go2); why.focus();
+    };
+    row.appendChild(rm);
+  }
+  var cc = el('button', 'btn', 'Cancel'); cc.type = 'button'; cc.onclick = function () { sv.edit = null; svEditor(); svDraw(); }; row.appendChild(cc);
+  p.appendChild(row);
+}
 var applyLangVcr = applyLang;
 applyLang = function (l, persist) {
   applyLangVcr(l, persist);
@@ -2174,6 +2317,7 @@ applyLang = function (l, persist) {
   if (on.id === 'pickup') openPickup(); else if (on.id === 'vcrview') vcrView($('bVvGo').style.display === '' ? 'drop' : 'mine');
 };
 setup();
+try { if (new URLSearchParams(location.search).get('staff') === '1' && VAN) svOpen(); } catch (e) {}
 </script>
 <script>
 /* ==========================================================================
