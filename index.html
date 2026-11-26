@@ -71,6 +71,25 @@
   .stafftitle { text-align:center; }
   .staffnote { text-align:center; margin-top:4px; }
   #bootMsg p { margin-top:4px; }
+  /* VCR (25 Nov 2026) */
+  .vtabs { display:flex; gap:6px; margin:10px 0; }
+  .vtab { flex:1; padding:9px 2px; border:1.5px solid var(--grey); border-radius:8px; background:#fff; color:var(--grey); font-size:14px; font-weight:600; cursor:pointer; }
+  .vtab[aria-pressed=true] { background:var(--grey); color:#fff; }
+  .vdraw { position:relative; margin:8px 0 2px; } .vdraw img { width:100%; display:block; }
+  .vcap { font-size:13px; font-weight:700; margin-top:8px; }
+  .vmk { position:absolute; transform:translate(-50%,-50%); background:var(--red); color:#fff; border:none; border-radius:14px; min-width:28px; height:28px; padding:0 6px; font-size:13px; font-weight:800; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.35); }
+  .vmk.disp { background:#fff; color:var(--red); border:2px solid var(--red); }
+  .vrow { display:flex; gap:10px; align-items:center; border-bottom:1px solid var(--line); padding:8px 0; font-size:15px; cursor:pointer; }
+  .vnum { background:var(--red); color:#fff; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; font-weight:800; flex:0 0 28px; }
+  .vgauge { display:flex; gap:10px; align-items:center; border:1px dashed var(--red); border-radius:10px; padding:8px; font-size:14px; margin:10px 0; }
+  .vgauge .c { width:42px; height:42px; border-radius:50%; border:4px solid var(--red); flex:0 0 42px; }
+  .vgauge { cursor:pointer; }
+  #vgOver { position:fixed; inset:0; background:#fff; z-index:9999; overflow-y:auto; padding:16px; display:none; }
+  #vgOver img { width:100%; display:block; border-radius:8px; margin:8px 0; }
+  #vgOver select { width:100%; font-size:16px; padding:10px; border:1.5px solid var(--grey); border-radius:8px; background:#fff; }
+  #vgTrue { margin:14px 0; } #vgTrue .tc { border:3px solid var(--red); border-radius:50%; margin:8px 0; }
+  #vgTrue .card { border:2px dashed var(--grey); border-radius:6px; margin:8px 0; }
+  .vbanner { background:#fdeceb; border-left:5px solid var(--red); padding:10px 12px; border-radius:8px; font-size:15px; margin:8px 0; }
 </style>
 </head>
 <body>
@@ -148,6 +167,7 @@
   <button class="btn" data-go="pickup">Pick Up</button>
   <button class="btn" data-go="dropoff">Drop Off</button>
   <button class="btn" data-go="damage">Report Damage</button>
+  <button class="btn" id="bMyVcr" style="display:none">My condition report</button>
   <button class="btn" data-go="contact">Contact Us</button>
   <button class="btn emerg" data-go="emergency">Emergency or accident</button>
   <button class="back" id="bOut">Not you? Log out</button>
@@ -182,9 +202,42 @@
   <p class="muted">Look the van over with this report. Tell us about anything that is not on it.</p>
   <div class="card instr" id="puInstr" style="display:none"><b>Quick instructions</b><ul></ul><a class="instr-full" href="#" style="display:none">Full instructions</a></div>
   <div id="puBody"><div class="spin"></div></div>
+  <div id="puSign" style="display:none">
+    <label class="tick" for="vAgree"><input type="checkbox" id="vAgree"><span>I checked the van against this report and it matches.</span></label>
+    <label for="vName">Your name</label>
+    <input type="text" id="vName" autocomplete="name" maxlength="80">
+    <button class="btn primary" id="bMatch">Matches my van</button>
+  </div>
+  <p class="muted" id="puSigned" style="display:none"></p>
   <button class="btn" id="bReviewed" disabled>I looked, no damage found</button>
   <button class="btn" id="bFound" disabled>Found damage not on the report</button>
   <div class="err" id="puErr"></div>
+  <button class="btn small tomk" data-go="mk">Back to My Karma</button>
+  <button class="back" data-go="mk">Back</button>
+</div>
+
+<!-- VCR: dispute a mark (25 Nov 2026) -->
+<div id="vcrdisp" class="view">
+  <h1>This mark doesn't look right</h1>
+  <p class="muted">Take a photo of this spot and tell us what you see. Our team will check it.</p>
+  <div class="card" id="vdMark"></div>
+  <input type="file" accept="image/*" capture="environment" id="vdFile" style="display:none">
+  <button class="btn" id="bVdPhoto">Add a photo</button>
+  <div class="thumbs" id="vdThumbs"></div>
+  <label for="vdNote">Note</label>
+  <textarea id="vdNote"></textarea>
+  <div class="err" id="vdErr"></div>
+  <button class="btn primary" id="bVdSend">Send</button>
+  <button class="back" data-go="pickup">Back</button>
+</div>
+
+<!-- VCR: review at drop off, and My condition report (25 Nov 2026) -->
+<div id="vcrview" class="view">
+  <h1 id="vvTitle">Vehicle Condition Report</h1>
+  <p class="vbanner" id="vvLead"></p>
+  <div id="vvBody"><div class="spin"></div></div>
+  <div id="vvSigned"></div>
+  <button class="btn primary" id="bVvGo" style="display:none">Continue to drop off</button>
   <button class="btn small tomk" data-go="mk">Back to My Karma</button>
   <button class="back" data-go="mk">Back</button>
 </div>
@@ -440,7 +493,44 @@ PACKS.de = { name: 'Deutsch', locale: 'de-DE', thousands: '.',
     "Uploading video...": "Video wird hochgeladen...", "Video added": "Video hinzugefügt",
     "The video did not upload. Try a shorter video.": "Das Video wurde nicht hochgeladen. Versuchen Sie ein kürzeres Video.",
     "That video could not be read.": "Dieses Video konnte nicht gelesen werden.",
-    "That video could not be used. Videos must be 25 MB or smaller.": "Dieses Video kann nicht verwendet werden. Videos dürfen höchstens 25 MB groß sein."
+    "That video could not be used. Videos must be 25 MB or smaller.": "Dieses Video kann nicht verwendet werden. Videos dürfen höchstens 25 MB groß sein.",
+    // VCR (25 Nov 2026), Claude's draft, for Kerstin to proofread
+    "Vehicle Condition Report": "Fahrzeugzustandsbericht",
+    "This van was checked before your trip. Every damage mark we know about is shown here. Walk around the van and compare.": "Dieses Fahrzeug wurde vor Ihrer Reise geprüft. Alle uns bekannten Schäden sind hier markiert. Gehen Sie um das Fahrzeug herum und vergleichen Sie.",
+    "Outside": "Außen", "Inside": "Innen",
+    "Marks smaller than our damage gauge (the red circle) are normal wear and are not shown.": "Spuren, die kleiner sind als unsere Schadensschablone (der rote Kreis), gelten als normale Abnutzung und werden nicht angezeigt.",
+    "Tap a mark if it does not look right.": "Tippen Sie auf eine Markierung, wenn sie nicht stimmt.",
+    "I checked the van against this report and it matches.": "Ich habe das Fahrzeug mit diesem Bericht verglichen und er stimmt.",
+    "Your name": "Ihr Name", "Matches my van": "Stimmt mit meinem Fahrzeug überein", "Something's not on it": "Etwas fehlt im Bericht",
+    "Send photos before you leave the parking lot so damage you find is not deducted from your security deposit.": "Senden Sie Fotos, bevor Sie den Parkplatz verlassen, damit gefundene Schäden nicht von Ihrer Kaution abgezogen werden.",
+    "This mark doesn't look right": "Diese Markierung stimmt nicht",
+    "Take a photo of this spot and tell us what you see. Our team will check it.": "Machen Sie ein Foto dieser Stelle und beschreiben Sie, was Sie sehen. Unser Team prüft das.",
+    "Add a photo": "Foto hinzufügen",
+    "Here is your van's condition report. Anything new since pick up?": "Hier ist der Zustandsbericht Ihres Fahrzeugs. Ist seit der Abholung etwas Neues dazugekommen?",
+    "Any other boo boos? Bumps, scratches, chips or anything that broke. A photo now helps us fix it fast.": "Noch andere kleine Missgeschicke? Dellen, Kratzer, Steinschläge oder etwas, das kaputtgegangen ist. Ein Foto hilft uns, es schnell zu reparieren.",
+    "Any other boo boos?": "Noch andere kleine Missgeschicke?",
+    "Continue to drop off": "Weiter zur Rückgabe", "My condition report": "Mein Zustandsbericht",
+    "No damage marks on file for this van.": "Für dieses Fahrzeug sind keine Schäden erfasst.",
+    "Please tick the box and type your name.": "Bitte setzen Sie das Häkchen und geben Sie Ihren Namen ein.",
+    "Please add a photo of this spot.": "Bitte fügen Sie ein Foto dieser Stelle hinzu.",
+    "Dent": "Delle", "Scratch or scuff": "Kratzer oder Schramme", "Paint or glass chip": "Lack- oder Glasabplatzer",
+    "Other damage, or a cluster of small marks": "Anderer Schaden oder mehrere kleine Spuren",
+    "Windshield chip, filled": "Steinschlag Windschutzscheibe, repariert", "Windshield chip, not filled": "Steinschlag Windschutzscheibe, nicht repariert",
+    "Inside: cab": "Innen: Fahrerhaus", "Inside: living area": "Innen: Wohnbereich", "Inside: cargo and back doors": "Innen: Laderaum und Hecktüren",
+    "front": "vorne", "rear": "hinten", "middle": "Mitte", "upper": "oben", "lower": "unten", "front door": "Vordertür",
+    "front corner": "vordere Ecke", "rear corner": "hintere Ecke", "left": "links", "right": "rechts", "centre": "Mitte",
+    "left centre": "links Mitte", "right centre": "rechts Mitte", "driver side edge": "Kante Fahrerseite", "passenger side edge": "Kante Beifahrerseite",
+    "Under review": "Wird geprüft",
+    // Damage gauge screen (25 Nov 2026), Claude's draft
+    "Karma damage gauge": "Karma Schadensschablone",
+    "Tap to see the gauge": "Tippen, um die Schablone zu sehen",
+    "To see the gauge at its true size, pick your phone once:": "Um die Schablone in Originalgröße zu sehen, wählen Sie einmal Ihr Telefon:",
+    "Pick your phone": "Telefon wählen",
+    "Another phone (match a bank card)": "Anderes Telefon (an Bankkarte anpassen)",
+    "True size: the red circle is 25 mm across.": "Originalgröße: Der rote Kreis hat 25 mm Durchmesser.",
+    "Hold a bank card on the dashed box, long side up, and move the slider until the widths match.": "Halten Sie eine Bankkarte hochkant auf das gestrichelte Feld und schieben Sie den Regler, bis die Breite passt.",
+    "If your screen zoom is turned up, use Another phone.": "Wenn die Bildschirmzoom-Einstellung vergrößert ist, wählen Sie Anderes Telefon.",
+    "Close": "Schließen"
   },
   M: {
     hello: function (f) { return f ? 'Hallo, ' + f : 'Mein Karma'; },
@@ -1542,6 +1632,221 @@ function footLang() {
 }
 var applyLangBase = applyLang;
 applyLang = function (l, persist) { applyLangBase(l, persist); footLang(); };
+
+/* ==========================================================================
+   Digital VCR (Vehicle Condition Report), 25 Nov 2026. Plan: Karma/Karma_VCR_Build_Plan_2026-11-25.md
+   Switched on only for the vans in VCR_VANS. Any other van, or any API problem, keeps today's Pick Up screen.
+   ========================================================================== */
+var VCR_VANS = ['999'];
+/* Damage gauge screen. Points per inch of each iPhone screen (Apple ppi / scale); px per mm = ppi / 25.4. */
+var VG_PHONES = [['ip12', 'iPhone 12 to 17 (not mini)', 460 / 3], ['ipmini', 'iPhone 12 mini or 13 mini', 476 / 3],
+  ['ipx', 'iPhone X, XS or 11 Pro', 458 / 3], ['ipse', 'iPhone SE, XR or 11', 326 / 2], ['other', 'Another phone (match a bank card)', 0]];
+function vgPxmm() {
+  var k = load('kgauge'), c = Number(load('kgaugepx'));
+  if (k === 'other') return c > 2 && c < 12 ? c : 6;
+  for (var i = 0; i < VG_PHONES.length; i++) if (VG_PHONES[i][0] === k) return VG_PHONES[i][2] / 25.4;
+  return 0;
+}
+function vgDraw() {
+  var t = $('vgTrue'); clear(t); var k = load('kgauge'); if (!k) return;
+  var px = vgPxmm(), d = 25 * px, c = el('div', 'tc'); c.style.width = d + 'px'; c.style.height = d + 'px';
+  t.appendChild(el('p', '', 'True size: the red circle is 25 mm across.')); t.appendChild(c);
+  var cv = document.createElement('canvas'), w = Math.round(60 * px) + 20, hh = 40, r = window.devicePixelRatio || 1;
+  cv.width = w * r; cv.height = hh * r; cv.style.width = w + 'px'; cv.style.height = hh + 'px';
+  var g = cv.getContext('2d'); g.scale(r, r); g.strokeStyle = '#000'; g.fillStyle = '#000'; g.font = '11px Arial'; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(10, hh - 1); g.lineTo(10 + 60 * px, hh - 1);
+  for (var m = 0; m <= 60; m++) { var x = 10 + m * px, L = m % 10 === 0 ? 16 : (m % 5 === 0 ? 10 : 6); g.moveTo(x, hh - 1); g.lineTo(x, hh - 1 - L); if (m % 10 === 0) g.fillText(m ? String(m / 10) : '0 cm', m ? x - 3 : x - 2, 12); }
+  g.stroke(); t.appendChild(cv);
+  if (k === 'other') {
+    t.appendChild(el('p', 'muted', 'Hold a bank card on the dashed box, long side up, and move the slider until the widths match.'));
+    var cd = el('div', 'card'); cd.style.width = (53.98 * px) + 'px'; cd.style.height = (85.6 * px) + 'px'; 
+    var s = document.createElement('input'); s.type = 'range'; s.min = '3'; s.max = '10'; s.step = '0.02'; s.value = String(px); s.style.width = '100%';
+    s.oninput = function () { store('kgaugepx', this.value); vgDraw(); }; t.appendChild(s); t.appendChild(cd);
+  } else {
+    t.appendChild(el('p', 'muted', 'If your screen zoom is turned up, use Another phone.'));
+  }
+}
+function vgOpen() {
+  var o = $('vgOver');
+  if (!o) {
+    o = el('div'); o.id = 'vgOver'; document.body.appendChild(o);
+    o.appendChild(el('h2', '', 'Karma damage gauge'));
+    var im = el('img'); im.src = 'vcr/gauge.jpg'; im.alt = 'Karma damage gauge'; o.appendChild(im);
+    o.appendChild(el('p', '', 'To see the gauge at its true size, pick your phone once:'));
+    var sel = document.createElement('select'); sel.id = 'vgSel'; var o0 = el('option', '', 'Pick your phone'); o0.value = ''; sel.appendChild(o0);
+    VG_PHONES.forEach(function (p) { var op = el('option', '', p[1]); op.value = p[0]; sel.appendChild(op); });
+    sel.onchange = function () { store('kgauge', this.value || null); vgDraw(); };
+    o.appendChild(sel); var tt = el('div'); tt.id = 'vgTrue'; o.appendChild(tt);
+    var b = el('button', 'btn primary', 'Close'); b.type = 'button'; b.onclick = function () { o.style.display = 'none'; }; o.appendChild(b);
+  }
+  $('vgSel').value = load('kgauge'); vgDraw(); o.style.display = 'block'; o.scrollTop = 0;
+}
+var VCR_GRID = { driver: [8, 3], passenger: [8, 3], roof: [8, 3], front: [4, 3], rear: [4, 3], windshield: [4, 3], dash: [4, 3], living: [4, 3], cargo: [4, 3] };
+var VCR_TYPE = { dent: ['Dent', 'O'], scratch: ['Scratch or scuff', '—'], chip: ['Paint or glass chip', '×'], other: ['Other damage, or a cluster of small marks', '[ ]'],
+  wsf: ['Windshield chip, filled', '×F'], wsn: ['Windshield chip, not filled', '×N-F'] };
+var VCR_NAME = { driver: 'Driver side', passenger: 'Passenger side', front: 'Front', rear: 'Rear', roof: 'Roof', windshield: 'Windshield',
+  dash: 'Inside: cab', living: 'Inside: living area', cargo: 'Inside: cargo and back doors' };
+var vcr = { data: null, tab: 'out', disp: null, photoIds: [], pending: 0 };
+function vcrOn() { return VCR_VANS.indexOf(String(VAN)) >= 0; }
+function vcrImg(view, layout) {
+  if (view === 'roof') return 'vcr/roof.svg';
+  if (view === 'living') return 'vcr/living' + (layout === '4' ? '4' : '2') + '.jpg';
+  if (view === 'cargo') return 'vcr/cargo' + (layout === '4' ? '4' : '2') + '.jpg';
+  return 'vcr/' + view + '.jpg';
+}
+function vcrTabs(layout) {
+  var inside = ['dash', 'living', 'cargo'];
+  return { out: { name: 'Outside', views: ['driver', 'passenger', 'front', 'rear'] }, ins: { name: 'Inside', views: inside },
+           ws: { name: 'Windshield', views: ['windshield'] }, roof: { name: 'Roof', views: ['roof'] } };
+}
+function vcrPlace(m) {
+  var g = VCR_GRID[m.view] || [4, 3], c = m.square.charCodeAt(0) - 65, r = parseInt(m.square.slice(1), 10) - 1;
+  var vert = ['upper', 'middle', 'lower'][r] || '', horiz;
+  if (m.view === 'roof') { horiz = ['front', 'front', 'front', 'middle', 'middle', 'rear', 'rear', 'rear'][c]; vert = ['driver side edge', 'centre', 'passenger side edge'][r]; }
+  else if (g[0] === 8) horiz = ['front corner', 'front', 'front door', 'middle', 'middle', 'rear', 'rear', 'rear corner'][c];
+  else horiz = ['left', 'left centre', 'right centre', 'right'][c];
+  return tr(VCR_NAME[m.view] || m.view) + ', ' + tr(horiz || '') + ', ' + tr(vert);
+}
+function vcrPos(m) {
+  var g = VCR_GRID[m.view] || [4, 3], c = m.square.charCodeAt(0) - 65, r = parseInt(m.square.slice(1), 10) - 1;
+  if (m.view === 'passenger') c = g[0] - 1 - c;          // A is always the front of the van; on this picture the front is on the right
+  return { x: (c + 0.5) * 100 / g[0], y: (r + 0.5) * 100 / g[1] };
+}
+function vcrDrawings(host, marks, layout, tabKey, tappable) {
+  clear(host);
+  var tabs = vcrTabs(layout), row = el('div', 'vtabs');
+  Object.keys(tabs).forEach(function (k) {
+    var b = el('button', 'vtab', tr(tabs[k].name)); b.type = 'button'; b.setAttribute('aria-pressed', k === tabKey ? 'true' : 'false');
+    b.onclick = function () { vcr.tab = k; vcrDrawings(host, marks, layout, k, tappable); };
+    row.appendChild(b);
+  });
+  host.appendChild(row);
+  tabs[tabKey].views.forEach(function (v) {
+    host.appendChild(el('div', 'vcap', tr(VCR_NAME[v])));
+    var box = el('div', 'vdraw'), im = el('img'); im.alt = VCR_NAME[v]; im.src = vcrImg(v, layout); box.appendChild(im);
+    marks.filter(function (m) { return m.view === v; }).forEach(function (m) {
+      var p = vcrPos(m), b = el('button', 'vmk' + (m.disputed ? ' disp' : ''), m.n + ' ' + (VCR_TYPE[m.type] || ['', ''])[1]);
+      b.type = 'button'; b.style.left = p.x + '%'; b.style.top = p.y + '%'; b.setAttribute('aria-label', m.n + ', ' + tr((VCR_TYPE[m.type] || [''])[0]));
+      if (tappable) b.onclick = function () { vcrOpenDispute(m); };
+      box.appendChild(b);
+    });
+    host.appendChild(box);
+  });
+  var g = el('div', 'vgauge'), gt = el('div'); g.appendChild(el('div', 'c'));
+  gt.appendChild(el('div', '', 'Marks smaller than our damage gauge (the red circle) are normal wear and are not shown.'));
+  gt.appendChild(el('div', 'muted', 'Tap to see the gauge')); g.appendChild(gt);
+  g.setAttribute('role', 'button'); g.onclick = vgOpen; host.appendChild(g);
+  if (!marks.length) host.appendChild(el('p', '', 'No damage marks on file for this van.'));
+  marks.forEach(function (m) {
+    var r = el('div', 'vrow'), n = el('span', 'vnum', String(m.n)), t = el('div');
+    t.appendChild(el('b', '', tr((VCR_TYPE[m.type] || [m.type])[0]))); t.appendChild(document.createElement('br'));
+    t.appendChild(el('span', 'muted', vcrPlace(m) + (m.disputed ? ' (' + tr('Under review') + ')' : '')));
+    r.appendChild(n); r.appendChild(t);
+    if (tappable) r.onclick = function () { vcrOpenDispute(m); };
+    host.appendChild(r);
+  });
+  if (tappable && marks.length) host.appendChild(el('p', 'muted', 'Tap a mark if it does not look right.'));
+}
+function vcrLoad(ok, fallback) {
+  if (!vcrOn()) { fallback(); return; }
+  google.script.run.withSuccessHandler(function (r) {
+    if (r && r.error === 'session') { sessionEnded(); return; }
+    if (!r || !r.ok) { fallback(); return; }
+    vcr.data = r; ok(r);
+  }).withFailureHandler(function () { fallback(); }).vcrInfo(VAN, session);
+}
+
+// Pick Up: the VCR replaces the old "known damage" list. "Something's not on it" is the same found damage report as before.
+var openPickupOld = openPickup;
+openPickup = function () {
+  if (!vcrOn()) { openPickupOld(); return; }
+  fillInstr('puInstr', PICKUP_BULLETS);
+  $('bReviewed').style.display = 'none'; $('bFound').disabled = true; $('puErr').textContent = '';
+  $('puSign').style.display = 'none'; $('puSigned').style.display = 'none';
+  var b = $('puBody'); clear(b); b.appendChild(el('div', 'spin'));
+  vcrLoad(function (r) {
+    clear(b);
+    b.appendChild(el('h2', '', 'Vehicle Condition Report'));
+    b.appendChild(el('p', 'vbanner', 'This van was checked before your trip. Every damage mark we know about is shown here. Walk around the van and compare.'));
+    var d = el('div'); b.appendChild(d); vcrDrawings(d, r.marks, r.layout, 'out', true);
+    var signed = (r.signed || []).filter(function (s) { return s.kind === 'Pick Up'; });
+    if (signed.length) { $('puSigned').textContent = '✓ ' + signed[signed.length - 1].at; $('puSigned').style.display = 'block'; }
+    else { $('puSign').style.display = 'block'; $('vAgree').checked = false; $('vName').value = ''; }
+    $('bFound').textContent = tr("Something's not on it"); $('bFound').disabled = false;
+    var w = $('puWarn'); if (!w) { w = el('p', 'muted', 'Send photos before you leave the parking lot so damage you find is not deducted from your security deposit.'); w.id = 'puWarn'; $('bFound').parentNode.insertBefore(w, $('bFound').nextSibling); }
+  }, function () { $('bReviewed').style.display = ''; openPickupOld(); });
+};
+function vcrMatch() {
+  var name = $('vName').value.trim();
+  if (!$('vAgree').checked || name.length < 2) { $('puErr').textContent = 'Please tick the box and type your name.'; return; }
+  $('puErr').textContent = '';
+  askKm(function () {
+    $('bMatch').disabled = true;
+    google.script.run.withSuccessHandler(function () { $('bMatch').disabled = false; sendSimple('Pick Up', 'REVIEWED'); })
+      .withFailureHandler(function (e) { $('bMatch').disabled = false; go('pickup'); $('puErr').textContent = (e && e.message) || 'Could not send. Try again.'; })
+      .vcrSignoff(VAN, session, device(), { kind: 'Pick Up', agreed: 'Y', name: name });
+  }, 'pickup');
+}
+
+// Dispute one mark: photo required, note optional.
+function vcrOpenDispute(m) {
+  vcr.disp = m; vcr.photoIds = []; vcr.pending = 0;
+  var c = $('vdMark'); clear(c); c.appendChild(el('b', '', m.n + '. ' + tr((VCR_TYPE[m.type] || [m.type])[0]))); c.appendChild(el('div', 'muted', vcrPlace(m)));
+  clear($('vdThumbs')); $('vdNote').value = ''; $('vdErr').textContent = ''; $('bVdSend').disabled = false;
+  show('vcrdisp');
+}
+function vcrDispPhoto(file) {
+  if (vcr.photoIds.length + vcr.pending >= 4) return;
+  vcr.pending++;
+  shrinkPhoto(file, function (data) {
+    var th = el('img'); th.src = data; $('vdThumbs').appendChild(th);
+    google.script.run.withSuccessHandler(function (r) { vcr.pending--; vcr.photoIds.push(r.id); })
+      .withFailureHandler(function (e) { vcr.pending--; th.remove(); $('vdErr').textContent = (e && e.message) || 'A photo did not upload. Add it again.'; })
+      .uploadPhoto(VAN, session, data, VAN + '_VcrDispute_' + Date.now() + '.jpg');
+  }, function () { vcr.pending--; $('vdErr').textContent = 'That photo could not be read.'; });
+}
+function vcrDispSend() {
+  if (vcr.pending > 0) { $('vdErr').textContent = 'Photos are still uploading. Wait a moment.'; return; }
+  if (!vcr.photoIds.length) { $('vdErr').textContent = 'Please add a photo of this spot.'; return; }
+  $('bVdSend').disabled = true;
+  google.script.run.withSuccessHandler(function () { finish('Damage', { ok: true }); })
+    .withFailureHandler(function (e) { $('bVdSend').disabled = false; $('vdErr').textContent = (e && e.message) || 'Could not send. Try again.'; })
+    .vcrDispute(VAN, session, device(), { n: vcr.disp.n, note: $('vdNote').value.trim(), photoIds: vcr.photoIds });
+}
+
+// Drop Off: show the VCR first, ask for boo boos, then the normal drop off (km, photos, selfie).
+function vcrView(mode) {
+  $('vvTitle').textContent = tr('Vehicle Condition Report');
+  $('vvLead').textContent = tr(mode === 'drop' ? "Here is your van's condition report. Anything new since pick up?" : 'This van was checked before your trip. Every damage mark we know about is shown here. Walk around the van and compare.');
+  $('bVvGo').style.display = mode === 'drop' ? '' : 'none';
+  var b = $('vvBody'); clear(b); b.appendChild(el('div', 'spin')); clear($('vvSigned'));
+  show('vcrview');
+  vcrLoad(function (r) {
+    vcrDrawings(b, r.marks, r.layout, 'out', false);
+    if (mode === 'drop') b.appendChild(el('p', 'vbanner', 'Any other boo boos? Bumps, scratches, chips or anything that broke. A photo now helps us fix it fast.'));
+    (r.signed || []).forEach(function (s) { $('vvSigned').appendChild(el('p', 'muted', '✓ ' + tr(s.kind) + ' ' + s.at)); });
+  }, function () { if (mode === 'drop') { askKm(function () { openForm('Drop Off'); }, 'mk'); } else { go('mk'); } });
+}
+var goBase = go;
+go = function (where) {
+  if (where === 'dropoff' && vcrOn()) { vcrView('drop'); return; }
+  goBase(where);
+  if (where === 'mk') $('bMyVcr').style.display = vcrOn() ? '' : 'none';
+};
+FORMS['Drop Off'].noteLbl = 'Any other boo boos?';
+$('bMatch').onclick = vcrMatch;
+$('bVdPhoto').onclick = function () { $('vdFile').click(); };
+$('vdFile').onchange = function () { if (this.files && this.files[0]) vcrDispPhoto(this.files[0]); this.value = ''; };
+$('bVdSend').onclick = vcrDispSend;
+$('bVvGo').onclick = function () { askKm(function () { openForm('Drop Off'); }, 'mk'); };
+$('bMyVcr').onclick = function () { vcrView('mine'); };
+NEEDS_SESSION.vcrdisp = 1; NEEDS_SESSION.vcrview = 1;
+var applyLangVcr = applyLang;
+applyLang = function (l, persist) {
+  applyLangVcr(l, persist);
+  var on = document.querySelector('.view.on'); if (!on || !session || !vcrOn()) return;
+  if (on.id === 'pickup') openPickup(); else if (on.id === 'vcrview') vcrView($('bVvGo').style.display === '' ? 'drop' : 'mine');
+};
 setup();
 </script>
 <script>
