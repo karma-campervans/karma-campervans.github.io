@@ -89,6 +89,17 @@
   #vgOver select { width:100%; font-size:16px; padding:10px; border:1.5px solid var(--grey); border-radius:8px; background:#fff; }
   #vgTrue { margin:14px 0; } #vgTrue .tc { border:3px solid var(--red); border-radius:50%; margin:8px 0; }
   #vgTrue .card { border:2px dashed var(--grey); border-radius:6px; margin:8px 0; }
+  .vsvg { position:absolute; left:0; top:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
+  .vsvg .hit { pointer-events:auto; cursor:pointer; }
+  .vcaprow { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  .vadd { background:none; border:none; color:var(--red); font-weight:700; font-size:14px; cursor:pointer; padding:6px 0 0; white-space:nowrap; }
+  .vlegend { display:flex; flex-wrap:wrap; gap:4px 12px; font-size:13px; margin:8px 0 4px; }
+  .vlegend span { display:inline-flex; align-items:center; gap:4px; }
+  .vlegend svg { flex:0 0 18px; }
+  .vchoice { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 10px; }
+  .vchoice button { border:2px solid var(--line); background:#fff; border-radius:8px; padding:8px 10px; font-size:14px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; }
+  .vchoice button[aria-pressed=true] { border-color:var(--grey); background:#f1f1f1; font-weight:700; }
+  #vaBox { cursor:crosshair; }
   .vbanner { background:#fdeceb; border-left:5px solid var(--red); padding:10px 12px; border-radius:8px; font-size:15px; margin:8px 0; }
 </style>
 </head>
@@ -229,6 +240,26 @@
   <div class="err" id="vdErr"></div>
   <button class="btn primary" id="bVdSend">Send</button>
   <button class="back" data-go="pickup">Back</button>
+</div>
+
+<!-- VCR: add damage on the drawing (25 Nov 2026, exact spot) -->
+<div id="vcradd" class="view">
+  <h1>Add damage</h1>
+  <p class="vbanner" id="vaLead">Tap the spot on the drawing where the damage is.</p>
+  <div class="vcap" id="vaCap"></div>
+  <div class="vdraw" id="vaBox"></div>
+  <label>What is it?</label>
+  <div class="vchoice" id="vaType"></div>
+  <label>About how big?</label>
+  <div class="vchoice" id="vaSize"></div>
+  <input type="file" accept="image/*" capture="environment" id="vaFile" style="display:none">
+  <button class="btn" id="bVaPhoto">Add a photo (required)</button>
+  <div class="thumbs" id="vaThumbs"></div>
+  <label for="vaNote">Note</label>
+  <textarea id="vaNote"></textarea>
+  <div class="err" id="vaErr"></div>
+  <button class="btn primary" id="bVaSend">Send to Karma</button>
+  <button class="back" id="bVaBack">Back</button>
 </div>
 
 <!-- VCR: review at drop off, and My condition report (25 Nov 2026) -->
@@ -1682,8 +1713,18 @@ function vgOpen() {
   $('vgSel').value = load('kgauge'); vgDraw(); o.style.display = 'block'; o.scrollTop = 0;
 }
 var VCR_GRID = { driver: [8, 3], passenger: [8, 3], roof: [8, 3], front: [4, 3], rear: [4, 3], windshield: [4, 3], dash: [4, 3], living: [4, 3], cargo: [4, 3] };
-var VCR_TYPE = { dent: ['Dent', 'O'], scratch: ['Scratch or scuff', '—'], chip: ['Paint or glass chip', '×'], other: ['Other damage, or a cluster of small marks', '[ ]'],
-  wsf: ['Windshield chip, filled', '×F'], wsn: ['Windshield chip, not filled', '×N-F'] };
+var VCR_TYPE = { dent: ['Dent or bump', 'O'], scratch: ['Scratch', '—'], scrape: ['Scrape or scuff', '≡'], chip: ['Paint chip', '•'],
+  crack: ['Crack', '⚡'], broken: ['Broken or missing part', 'X'], other: ['Other damage, or a cluster of small marks', '[ ]'],
+  wsf: ['Windshield chip, filled', '•F'], wsn: ['Windshield chip, not filled', '○'] };
+/* Exact spot (25 Nov 2026): colour and shape per type, shown in the legend. */
+var VCR_COLOR = { dent: '#6a3fb5', scratch: '#d6262b', scrape: '#e07b00', chip: '#1f6fd1', crack: '#222222', broken: '#8b0000',
+  other: '#6b6b6b', wsf: '#0f8a78', wsn: '#0f8a78' };
+var VCR_GUEST_TYPES = { out: ['dent', 'scratch', 'scrape', 'chip', 'crack', 'broken', 'other'], ws: ['wsn', 'crack'], ins: ['broken', 'scratch', 'other'] };
+var VCR_SIZES = [[2, 'Coin size (about 2 cm)'], [8, 'Palm size (about 8 cm)'], [30, 'Forearm size (about 30 cm)'], [60, 'Bigger (60 cm or more)']];
+/* Real width in cm that each drawing covers, for drawing to scale. Approximate (Transit high roof, extended): Jack to check. */
+var VCR_VIEW_CM = { driver: 600, passenger: 600, roof: 600, front: 210, rear: 210, windshield: 180, dash: 200, living: 200, cargo: 200 };
+function vcrTabOf(view) { return ['dash', 'living', 'cargo'].indexOf(view) >= 0 ? 'ins' : (view === 'windshield' ? 'ws' : 'out'); }
+function vcrSizeWords(cm) { cm = Number(cm) || 0; return cm ? (cm >= 60 ? 'about 60 cm or more' : 'about ' + cm + ' cm') : ''; }
 var VCR_NAME = { driver: 'Driver side', passenger: 'Passenger side', front: 'Front', rear: 'Rear', roof: 'Roof', windshield: 'Windshield',
   dash: 'Inside: cab', living: 'Inside: living area', cargo: 'Inside: cargo and back doors' };
 var vcr = { data: null, tab: 'out', disp: null, photoIds: [], pending: 0 };
@@ -1699,7 +1740,13 @@ function vcrTabs(layout) {
   return { out: { name: 'Outside', views: ['driver', 'passenger', 'front', 'rear'] }, ins: { name: 'Inside', views: inside },
            ws: { name: 'Windshield', views: ['windshield'] }, roof: { name: 'Roof', views: ['roof'] } };
 }
+function vcrSquareOf(view, x, y) {
+  var g = VCR_GRID[view] || [4, 3], c = Math.min(g[0] - 1, Math.max(0, Math.floor(x * g[0] / 100))), r = Math.min(g[1] - 1, Math.max(0, Math.floor(y * g[1] / 100)));
+  if (view === 'passenger') c = g[0] - 1 - c;
+  return String.fromCharCode(65 + c) + (r + 1);
+}
 function vcrPlace(m) {
+  if (!m.square && m.x != null) m.square = vcrSquareOf(m.view, m.x, m.y);
   var g = VCR_GRID[m.view] || [4, 3], c = m.square.charCodeAt(0) - 65, r = parseInt(m.square.slice(1), 10) - 1;
   var vert = ['upper', 'middle', 'lower'][r] || '', horiz;
   if (m.view === 'roof') { horiz = ['front', 'front', 'front', 'middle', 'middle', 'rear', 'rear', 'rear'][c]; vert = ['driver side edge', 'centre', 'passenger side edge'][r]; }
@@ -1708,9 +1755,69 @@ function vcrPlace(m) {
   return tr(VCR_NAME[m.view] || m.view) + ', ' + tr(horiz || '') + ', ' + tr(vert);
 }
 function vcrPos(m) {
+  if (m.x != null && m.x !== '' && !isNaN(Number(m.x))) return { x: Number(m.x), y: Number(m.y) };
   var g = VCR_GRID[m.view] || [4, 3], c = m.square.charCodeAt(0) - 65, r = parseInt(m.square.slice(1), 10) - 1;
   if (m.view === 'passenger') c = g[0] - 1 - c;          // A is always the front of the van; on this picture the front is on the right
   return { x: (c + 0.5) * 100 / g[0], y: (r + 0.5) * 100 / g[1] };
+}
+var SVGNS = 'http://www.w3.org/2000/svg';
+function svgEl(tag, a) { var e = document.createElementNS(SVGNS, tag); for (var k in a) e.setAttribute(k, a[k]); return e; }
+/* One mark: shape by type, drawn to scale (cm), never smaller than easy to see; number badge beside it. */
+function vcrShape(g, m, W, H, opts) {
+  opts = opts || {};
+  var p = vcrPos(m), x = p.x * W / 100, y = p.y * H / 100, u = W / (VCR_VIEW_CM[m.view] || 300), col = VCR_COLOR[m.type] || '#d6262b';
+  var len = opts.icon ? W * 0.75 : Math.max((Number(m.size) || 8) * u, 18), sw = opts.icon ? W * 0.13 : Math.max(W / 90, 4), grp = svgEl('g', {});
+  var ang = Number(m.angle) || 0;
+  if (m.type === 'scratch') grp.appendChild(svgEl('line', { x1: x - len / 2, y1: y, x2: x + len / 2, y2: y, stroke: col, 'stroke-width': sw, 'stroke-linecap': 'round' }));
+  else if (m.type === 'scrape') grp.appendChild(svgEl('rect', { x: x - len / 2, y: y - sw * 1.6, width: len, height: sw * 3.2, rx: sw, fill: col, 'fill-opacity': 0.55, stroke: col, 'stroke-width': 2 }));
+  else if (m.type === 'dent') grp.appendChild(svgEl('ellipse', { cx: x, cy: y, rx: Math.max(len / 2, 9), ry: Math.max(len / 2.6, 7), fill: col, 'fill-opacity': 0.15, stroke: col, 'stroke-width': sw }));
+  else if (m.type === 'chip' || m.type === 'wsf') grp.appendChild(svgEl('circle', { cx: x, cy: y, r: Math.max(len / 2, 7), fill: col }));
+  else if (m.type === 'wsn') grp.appendChild(svgEl('circle', { cx: x, cy: y, r: Math.max(len / 2, 8), fill: '#fff', stroke: col, 'stroke-width': sw }));
+  else if (m.type === 'crack') {
+    var s = len / 4, d = 'M' + (x - 2 * s) + ' ' + y + ' l' + s + ' ' + (-s * 0.6) + ' l' + s + ' ' + (s * 1.2) + ' l' + s + ' ' + (-s * 1.2) + ' l' + s + ' ' + (s * 0.6);
+    grp.appendChild(svgEl('path', { d: d, fill: 'none', stroke: col, 'stroke-width': sw, 'stroke-linejoin': 'round' }));
+  } else if (m.type === 'broken') {
+    var b = Math.max(len / 2, 10);
+    grp.appendChild(svgEl('rect', { x: x - b, y: y - b, width: 2 * b, height: 2 * b, rx: 3, fill: '#fff', 'fill-opacity': 0.7, stroke: col, 'stroke-width': sw }));
+    grp.appendChild(svgEl('path', { d: 'M' + (x - b * 0.6) + ' ' + (y - b * 0.6) + ' L' + (x + b * 0.6) + ' ' + (y + b * 0.6) + ' M' + (x + b * 0.6) + ' ' + (y - b * 0.6) + ' L' + (x - b * 0.6) + ' ' + (y + b * 0.6), stroke: col, 'stroke-width': sw }));
+  } else grp.appendChild(svgEl('circle', { cx: x, cy: y, r: Math.max(len / 2, 10), fill: 'none', stroke: col, 'stroke-width': sw, 'stroke-dasharray': '6 4' }));
+  if (ang) grp.setAttribute('transform', 'rotate(' + ang + ' ' + x + ' ' + y + ')');
+  if (m.disputed) grp.setAttribute('opacity', '0.55');
+  g.appendChild(grp);
+  if (m.n) {
+    var br = Math.max(W / 34, 13), bx = Math.min(W - br, x + Math.max(len / 2, 10) + br * 0.6), by = Math.max(br, y - br * 1.2);
+    g.appendChild(svgEl('circle', { cx: bx, cy: by, r: br, fill: col, stroke: '#fff', 'stroke-width': 2 }));
+    var t = svgEl('text', { x: bx, y: by + br * 0.38, 'text-anchor': 'middle', 'font-size': br * 1.1, 'font-weight': 800, fill: '#fff', 'font-family': 'Arial' });
+    t.textContent = String(m.n); g.appendChild(t);
+  }
+  if (opts.onTap) {
+    var hit = svgEl('circle', { cx: x, cy: y, r: Math.max(len / 2, W / 22), fill: 'transparent', 'class': 'hit' });
+    hit.setAttribute('aria-label', (m.n || '') + ' ' + tr((VCR_TYPE[m.type] || [''])[0]));
+    hit.addEventListener('click', function (e) { e.stopPropagation(); opts.onTap(m); });
+    g.appendChild(hit);
+  }
+}
+/* Draw the marks of one view over its picture, after the picture knows its size. */
+function vcrOverlay(box, im, marks, opts) {
+  function draw() {
+    var old = box.querySelector('svg.vsvg'); if (old) old.remove();
+    var W = 1000, H = Math.round(1000 * (im.naturalHeight || 1) / (im.naturalWidth || 1));
+    var s = svgEl('svg', { 'class': 'vsvg', viewBox: '0 0 ' + W + ' ' + H, preserveAspectRatio: 'none' });
+    marks.forEach(function (m) { vcrShape(s, m, W, H, opts); });
+    box.appendChild(s); box._vcrWH = [W, H];
+  }
+  if (im.complete && im.naturalWidth) draw(); else im.addEventListener('load', draw);
+  return draw;
+}
+function vcrLegendIcon(type) {
+  var s = svgEl('svg', { width: 18, height: 18, viewBox: '0 0 100 100' });
+  vcrShape(s, { type: type, view: 'front', x: 50, y: 50 }, 100, 100, { icon: true });
+  return s;
+}
+function vcrLegend(host, types) {
+  var lg = el('div', 'vlegend');
+  types.forEach(function (t) { var sp = el('span'); sp.appendChild(vcrLegendIcon(t)); sp.appendChild(document.createTextNode(tr(VCR_TYPE[t][0]))); lg.appendChild(sp); });
+  host.appendChild(lg);
 }
 function vcrDrawings(host, marks, layout, tabKey, tappable) {
   clear(host);
@@ -1722,16 +1829,15 @@ function vcrDrawings(host, marks, layout, tabKey, tappable) {
   });
   host.appendChild(row);
   tabs[tabKey].views.forEach(function (v) {
-    host.appendChild(el('div', 'vcap', tr(VCR_NAME[v])));
+    var cr = el('div', 'vcaprow'); cr.appendChild(el('div', 'vcap', tr(VCR_NAME[v])));
+    if (vcr.addFrom) { var ad = el('button', 'vadd', '+ ' + tr('Add damage')); ad.type = 'button'; ad.onclick = function () { vcrAddOpen(v, layout); }; cr.appendChild(ad); }
+    host.appendChild(cr);
     var box = el('div', 'vdraw'), im = el('img'); im.alt = VCR_NAME[v]; im.src = vcrImg(v, layout); box.appendChild(im);
-    marks.filter(function (m) { return m.view === v; }).forEach(function (m) {
-      var p = vcrPos(m), b = el('button', 'vmk' + (m.disputed ? ' disp' : ''), m.n + ' ' + (VCR_TYPE[m.type] || ['', ''])[1]);
-      b.type = 'button'; b.style.left = p.x + '%'; b.style.top = p.y + '%'; b.setAttribute('aria-label', m.n + ', ' + tr((VCR_TYPE[m.type] || [''])[0]));
-      if (tappable) b.onclick = function () { vcrOpenDispute(m); };
-      box.appendChild(b);
-    });
+    vcrOverlay(box, im, marks.filter(function (m) { return m.view === v; }), tappable ? { onTap: vcrOpenDispute } : {});
     host.appendChild(box);
   });
+  vcrLegend(host, Object.keys(VCR_TYPE).filter(function (t) { return t !== 'wsf' || tabKey === 'ws'; }).filter(function (t) {
+    return tabKey === 'ws' ? ['wsf', 'wsn', 'crack'].indexOf(t) >= 0 : ['wsf', 'wsn'].indexOf(t) < 0; }));
   var g = el('div', 'vgauge'), gt = el('div'); g.appendChild(el('div', 'c'));
   gt.appendChild(el('div', '', 'Marks smaller than our damage gauge (the red circle) are normal wear and are not shown.'));
   gt.appendChild(el('div', 'muted', 'Tap to see the gauge')); g.appendChild(gt);
@@ -1739,7 +1845,8 @@ function vcrDrawings(host, marks, layout, tabKey, tappable) {
   if (!marks.length) host.appendChild(el('p', '', 'No damage marks on file for this van.'));
   marks.forEach(function (m) {
     var r = el('div', 'vrow'), n = el('span', 'vnum', String(m.n)), t = el('div');
-    t.appendChild(el('b', '', tr((VCR_TYPE[m.type] || [m.type])[0]))); t.appendChild(document.createElement('br'));
+    n.style.background = VCR_COLOR[m.type] || '';
+    t.appendChild(el('b', '', tr((VCR_TYPE[m.type] || [m.type])[0]) + (m.size ? ', ' + tr(vcrSizeWords(m.size)) : ''))); t.appendChild(document.createElement('br'));
     t.appendChild(el('span', 'muted', vcrPlace(m) + (m.disputed ? ' (' + tr('Under review') + ')' : '')));
     r.appendChild(n); r.appendChild(t);
     if (tappable) r.onclick = function () { vcrOpenDispute(m); };
@@ -1768,7 +1875,7 @@ openPickup = function () {
     clear(b);
     b.appendChild(el('h2', '', 'Vehicle Condition Report'));
     b.appendChild(el('p', 'vbanner', 'This van was checked before your trip. Every damage mark we know about is shown here. Walk around the van and compare.'));
-    var d = el('div'); b.appendChild(d); vcrDrawings(d, r.marks, r.layout, 'out', true);
+    vcr.addFrom = 'Pick Up'; var d = el('div'); b.appendChild(d); vcrDrawings(d, r.marks, r.layout, vcr.tab || 'out', true);
     var signed = (r.signed || []).filter(function (s) { return s.kind === 'Pick Up'; });
     if (signed.length) { $('puSigned').textContent = '✓ ' + signed[signed.length - 1].at; $('puSigned').style.display = 'block'; }
     else { $('puSign').style.display = 'block'; $('vAgree').checked = false; $('vName').value = ''; }
@@ -1814,6 +1921,61 @@ function vcrDispSend() {
     .vcrDispute(VAN, session, device(), { n: vcr.disp.n, note: $('vdNote').value.trim(), photoIds: vcr.photoIds });
 }
 
+// Add damage on the drawing: tap the spot, pick the type and size, add a photo, send. It waits for a lead before it shows.
+function vcrAddOpen(view, layout) {
+  vcr.add = { view: view, layout: layout, x: null, y: null, type: '', size: 0, photoIds: [], pending: 0, from: vcr.addFrom };
+  $('vaCap').textContent = tr(VCR_NAME[view]); $('vaErr').textContent = ''; $('vaNote').value = ''; clear($('vaThumbs'));
+  $('vaLead').textContent = tr('Tap the spot on the drawing where the damage is.'); $('bVaSend').disabled = false;
+  var box = $('vaBox'); clear(box); var im = el('img'); im.alt = VCR_NAME[view]; im.src = vcrImg(view, layout); box.appendChild(im);
+  var redraw = vcrOverlay(box, im, [], {});
+  box.onclick = function (e) {
+    var r = im.getBoundingClientRect(); if (!r.width) return;
+    vcr.add.x = Math.round(Math.min(100, Math.max(0, (e.clientX - r.left) * 100 / r.width)) * 10) / 10;
+    vcr.add.y = Math.round(Math.min(100, Math.max(0, (e.clientY - r.top) * 100 / r.height)) * 10) / 10;
+    $('vaLead').textContent = tr('Got it. Tap again to move it.'); vcrAddPreview();
+  };
+  vcr.add.redraw = function () { var old = box.querySelector('svg.vsvg'); if (old) old.remove();
+    var W = 1000, H = Math.round(1000 * (im.naturalHeight || 1) / (im.naturalWidth || 1)), s = svgEl('svg', { 'class': 'vsvg', viewBox: '0 0 ' + W + ' ' + H, preserveAspectRatio: 'none' });
+    if (vcr.add.x != null) {
+      var a = vcr.add, px = a.x * W / 100, py = a.y * H / 100;
+      s.appendChild(svgEl('circle', { cx: px, cy: py, r: 40, fill: 'none', stroke: '#000', 'stroke-width': 3, 'stroke-dasharray': '8 6' }));
+      if (a.type) vcrShape(s, { view: a.view, type: a.type, x: a.x, y: a.y, size: a.size || 8 }, W, H, {});
+      else s.appendChild(svgEl('circle', { cx: px, cy: py, r: 7, fill: '#000' }));
+    }
+    box.appendChild(s); };
+  var types = VCR_GUEST_TYPES[vcrTabOf(view)], tc = $('vaType'); clear(tc);
+  types.forEach(function (t) { var b = el('button'); b.type = 'button'; b.setAttribute('aria-pressed', 'false'); b.appendChild(vcrLegendIcon(t)); b.appendChild(document.createTextNode(tr(VCR_TYPE[t][0])));
+    b.onclick = function () { vcr.add.type = t; Array.prototype.forEach.call(tc.children, function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); }); vcrAddPreview(); }; tc.appendChild(b); });
+  var sc = $('vaSize'); clear(sc);
+  VCR_SIZES.forEach(function (z) { var b = el('button', '', tr(z[1])); b.type = 'button'; b.setAttribute('aria-pressed', 'false');
+    b.onclick = function () { vcr.add.size = z[0]; Array.prototype.forEach.call(sc.children, function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); }); vcrAddPreview(); }; sc.appendChild(b); });
+  show('vcradd');
+}
+function vcrAddPreview() { if (vcr.add && vcr.add.redraw) vcr.add.redraw(); }
+function vcrAddPhoto(file) {
+  var a = vcr.add; if (!a || a.photoIds.length + a.pending >= 4) return;
+  a.pending++;
+  shrinkPhoto(file, function (data) {
+    var th = el('img'); th.src = data; $('vaThumbs').appendChild(th);
+    google.script.run.withSuccessHandler(function (r) { a.pending--; a.photoIds.push(r.id); })
+      .withFailureHandler(function (e) { a.pending--; th.remove(); $('vaErr').textContent = (e && e.message) || tr('A photo did not upload. Add it again.'); })
+      .uploadPhoto(VAN, session, data, VAN + '_VcrAdd_' + Date.now() + '.jpg');
+  }, function () { a.pending--; $('vaErr').textContent = tr('That photo could not be read.'); });
+}
+function vcrAddSend() {
+  var a = vcr.add, err = $('vaErr');
+  if (a.x == null) { err.textContent = tr('Tap the spot on the drawing first.'); return; }
+  if (!a.type) { err.textContent = tr('Pick what it is.'); return; }
+  if (!a.size) { err.textContent = tr('Pick about how big it is.'); return; }
+  if (a.pending > 0) { err.textContent = tr('Photos are still uploading. Wait a moment.'); return; }
+  if (!a.photoIds.length) { err.textContent = tr('Please add a photo of the damage.'); return; }
+  err.textContent = ''; $('bVaSend').disabled = true;
+  google.script.run.withSuccessHandler(function () { finish('Damage', { ok: true }); })
+    .withFailureHandler(function (e) { $('bVaSend').disabled = false; err.textContent = (e && e.message) || tr('Could not send. Try again.'); })
+    .vcrAddMark(VAN, session, device(), { view: a.view, x: a.x, y: a.y, type: a.type, size: a.size, note: $('vaNote').value.trim(), photoIds: a.photoIds, context: a.from });
+}
+function vcrAddBack() { var a = vcr.add || {}; if (a.from === 'Pick Up') openPickup(); else vcrView(a.from === 'Drop Off' ? 'drop' : 'mine'); }
+
 // Drop Off: show the VCR first, ask for boo boos, then the normal drop off (km, photos, selfie).
 function vcrView(mode) {
   $('vvTitle').textContent = tr('Vehicle Condition Report');
@@ -1822,7 +1984,8 @@ function vcrView(mode) {
   var b = $('vvBody'); clear(b); b.appendChild(el('div', 'spin')); clear($('vvSigned'));
   show('vcrview');
   vcrLoad(function (r) {
-    vcrDrawings(b, r.marks, r.layout, 'out', false);
+    vcr.addFrom = mode === 'drop' ? 'Drop Off' : 'Trip'; vcr.mode = mode;
+    vcrDrawings(b, r.marks, r.layout, vcr.tab || 'out', false);
     if (mode === 'drop') b.appendChild(el('p', 'vbanner', 'Any other boo boos? Bumps, scratches, chips or anything that broke. A photo now helps us fix it fast.'));
     (r.signed || []).forEach(function (s) { $('vvSigned').appendChild(el('p', 'muted', '✓ ' + tr(s.kind) + ' ' + s.at)); });
   }, function () { if (mode === 'drop') { askKm(function () { openForm('Drop Off'); }, 'mk'); } else { go('mk'); } });
@@ -1840,7 +2003,11 @@ $('vdFile').onchange = function () { if (this.files && this.files[0]) vcrDispPho
 $('bVdSend').onclick = vcrDispSend;
 $('bVvGo').onclick = function () { askKm(function () { openForm('Drop Off'); }, 'mk'); };
 $('bMyVcr').onclick = function () { vcrView('mine'); };
-NEEDS_SESSION.vcrdisp = 1; NEEDS_SESSION.vcrview = 1;
+$('bVaPhoto').onclick = function () { $('vaFile').click(); };
+$('vaFile').onchange = function () { if (this.files && this.files[0]) vcrAddPhoto(this.files[0]); this.value = ''; };
+$('bVaSend').onclick = vcrAddSend;
+$('bVaBack').onclick = vcrAddBack;
+NEEDS_SESSION.vcrdisp = 1; NEEDS_SESSION.vcrview = 1; NEEDS_SESSION.vcradd = 1;
 var applyLangVcr = applyLang;
 applyLang = function (l, persist) {
   applyLangVcr(l, persist);
