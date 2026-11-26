@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 300" width="760" height="300">
+  <rect width="760" height="300" fill="#fff"/>
+  <!-- Roof seen from above: front of the van at the left. Karma VCR 25 Nov 2026 -->
+  <path d="M40 70 Q40 40 75 38 L700 38 Q725 38 725 62 L725 238 Q725 262 700 262 L75 262 Q40 260 40 230 Z" fill="#f4f4f4" stroke="#545454" stroke-width="3"/>
+  <path d="M40 70 Q60 60 110 58 L110 242 Q60 240 40 230" fill="#e2e2e2" stroke="#545454" stroke-width="2"/>
+  <g stroke="#9a9a9a" stroke-width="2" fill="none">
+    <line x1="170" y1="60" x2="170" y2="240"/><line x1="290" y1="60" x2="290" y2="240"/>
+    <line x1="410" y1="60" x2="410" y2="240"/><line x1="530" y1="60" x2="530" y2="240"/><line x1="650" y1="60" x2="650" y2="240"/>
+  </g>
+  <rect x="330" y="105" width="70" height="90" rx="8" fill="#fff" stroke="#545454" stroke-width="2"/>
+  <rect x="560" y="115" width="60" height="70" rx="6" fill="#fff" stroke="#545454" stroke-width="2"/>
+  <text x="380" y="292" font-family="Arial" font-size="18" text-anchor="middle" fill="#545454">Roof, from above (front of van on the left)</text>
+</svg>
