@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
 <title>Karma check out photos and video</title>
-<!-- Karma check out media page, build step 1 (K999 trial), 26 Nov 2026. Staff only: Google sign in, then the Staff tab check in the API.
+<!-- Karma check out media page. Step 1 (K999 trial) 26 Nov 2026 19:33; step 2 and the speed fix 26 Nov 2026 22:30 (all 8 protocol sections,
+     zones and named spots, the protocol notes, slate screen, pickup timing, one call per photo). Staff only: Google sign in, then the Staff tab check in the API.
      Address: media.html?van=999   Add &mock=1 to see the layout with nothing sent. -->
 <style>
   :root { --btn:#dd2f2e; --red:#ef4138; --grey:#545454; --help:#666666; --line:#e3e3e3; --soft:#f5f5f5; --ok:#1b7f3b; }
@@ -15,13 +16,21 @@
   main { padding:12px 16px 40px; max-width:560px; margin:0 auto; }
   .who { color:var(--help); font-size:14px; margin:4px 0 12px; }
   .who a { color:var(--help); }
+  .tot { font-size:16px; font-weight:700; margin:6px 0; }
+  .time { border-radius:12px; padding:10px 12px; margin:8px 0; font-size:14px; background:var(--soft); }
+  .time.bad { border:2px solid var(--btn); background:#fff; color:var(--btn); font-weight:600; }
   .sec { border:3px solid var(--btn); border-radius:14px; padding:12px 14px; margin:14px 0; }
   .sec.done { background:var(--btn); color:#fff; }
   .sec h2 { margin:0 0 4px; font-size:17px; text-transform:uppercase; }
   .sec .cnt { font-size:14px; }
+  .sec details { font-size:13px; margin-top:6px; } .sec summary { cursor:pointer; font-weight:600; }
+  .part { border-top:1px solid rgba(0,0,0,.12); margin-top:10px; padding-top:8px; }
+  .sec.done .part { border-color:rgba(255,255,255,.4); }
+  .part b { font-size:15px; }
   .btn { display:block; width:100%; padding:15px; margin:10px 0 0; border-radius:12px; border:1.5px solid var(--grey); background:#fff;
          font-size:16px; font-weight:600; color:#222; text-align:center; }
   .btn.primary { background:var(--btn); border-color:var(--btn); color:#fff; }
+  .btn.small { padding:11px; font-size:15px; margin-top:6px; }
   .sec.done .btn { border-color:#fff; }
   .row { display:flex; gap:8px; } .row .btn { flex:1; }
   .prog { margin:10px 0 0; font-size:14px; }
@@ -32,6 +41,8 @@
   .list { font-size:13px; color:var(--help); margin-top:16px; }
   .list div { padding:6px 0; border-bottom:1px solid var(--line); }
   .note { font-size:13px; color:var(--help); }
+  #slate { position:fixed; inset:0; background:#000; color:#fff; display:none; flex-direction:column; justify-content:center; align-items:center; text-align:center; z-index:9; }
+  #slate .v { font-size:110px; font-weight:800; line-height:1; } #slate .l { font-size:30px; margin:10px 0; } #slate .x { font-size:16px; margin-top:30px; color:#bbb; }
   input[type=file] { display:none; }
 </style>
 </head>
@@ -42,8 +53,9 @@
   <div id="err" class="err"></div>
   <div id="body"></div>
   <div id="list" class="list"></div>
-  <p class="note">Trial page (step 1). Photos are made smaller on the phone before they upload. Videos upload at full quality in 4 MB pieces; if the signal drops, tap Carry on.</p>
+  <p class="note">Trial page on test vans. Photos are made smaller on the phone and go up one at a time in a single step. Videos upload at full quality in 4 MB pieces; if the signal drops, tap Carry on.</p>
 </main>
+<div id="slate" onclick="this.style.display='none'"></div>
 <input type="file" id="fCam" accept="image/*" capture="environment">
 <input type="file" id="fRoll" accept="image/*" multiple>
 <input type="file" id="fVidCam" accept="video/*" capture="environment">
@@ -54,13 +66,14 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbysIXKLf0PTr4VguvCpen_KmR
 var STAFF_CLIENT_ID = '484799108958-2lnlt0dvjaum83hf4am60aheugtgbeoh.apps.googleusercontent.com';
 var Q = new URLSearchParams(location.search), VAN = (Q.get('van') || '').replace(/\D/g, ''), MOCK = Q.get('mock') === '1';
 var PHOTO_MAX_EDGE = 2048, PHOTO_QUALITY = 0.82;
-var st = { tok: '', info: null, busy: false, pending: null };
+var st = { tok: '', info: null, busy: false };
 function $(i) { return document.getElementById(i); }
 function el(t, c, x) { var e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; }
 function mb(n) { return (n / 1048576).toFixed(n < 10485760 ? 2 : 1) + ' MB'; }
 function secs(ms) { return (ms / 1000).toFixed(1) + ' s'; }
 function device() { return (navigator.userAgent || '').slice(0, 120); }
 function err(m) { $('err').textContent = m || ''; if (m) try { $('err').scrollIntoView({ block: 'center' }); } catch (e) {} }
+function key(s) { return String(s).replace(/\W+/g, '_'); }
 
 /* ---------- API (same contract as index.html: text/plain POST, no cookies) ---------- */
 function api(fn, args) {
@@ -108,41 +121,69 @@ function render() {
   var w = $('who'); w.textContent = 'Signed in: ' + i.who.name + ' (' + i.who.role + '). ';
   var so = el('a', '', 'Sign out'); so.href = '#'; so.onclick = function (e) { e.preventDefault(); try { sessionStorage.removeItem('kstafftok'); } catch (x) {} st.tok = ''; signIn(); }; w.appendChild(so);
   if (!i.open) { b.appendChild(el('p', '', 'This page is in a trial on test vans only. Use Karma Ops for K' + VAN + '.')); return; }
-  b.appendChild(section('Exterior', 'photo', 'Photos: Exterior', 'Take photos one after another, or add many at once from the camera roll (use the 0.5x lens in the phone camera).'));
-  b.appendChild(section('Exterior video', 'video', 'Exterior video', 'Full quality video from the phone camera, about 1:30.'));
+  b.appendChild(el('div', 'tot', (i.doneCount || 0) + ' of ' + (i.total || 8) + ' sections done'));
+  var p = i.pickup || {}, tm = el('div', 'time' + (p.found && !p.ok ? ' bad' : ''), p.text || ''); b.appendChild(tm);
+  var sl = el('button', 'btn', 'Slate for the video (van, date, initials)'); sl.onclick = slate; b.appendChild(sl);
+  (i.plan || []).forEach(function (s) { b.appendChild(section(s)); });
   var l = $('list'); l.innerHTML = '';
   if (i.last.length) {
     l.appendChild(el('b', '', 'Uploaded on K' + VAN + ' (newest first)'));
-    i.last.forEach(function (x) { l.appendChild(el('div', '', x.section + ': ' + mb(x.bytes) + ' in ' + secs(x.ms) + ', ' + x.at + ', ' + x.by)); });
+    i.last.forEach(function (x) { l.appendChild(el('div', '', x.section + (x.spot ? ' (' + x.spot + ')' : '') + ': ' + mb(x.bytes) + ' in ' + secs(x.ms) + ', ' + x.at + ', ' + x.by)); });
   }
 }
-function section(name, type, title, help) {
-  var n = st.info.counts[name] || 0, s = el('div', 'sec' + (n ? ' done' : '')); s.id = 'sec_' + type;
-  s.appendChild(el('h2', '', (n ? '✓ ' : '') + title));
-  s.appendChild(el('div', 'cnt', n + (type === 'video' ? ' video' + (n === 1 ? '' : 's') : ' photo' + (n === 1 ? '' : 's')) + ' saved. ' + help));
-  var r = el('div', 'row'), a = el('button', 'btn primary', type === 'video' ? 'Record video' : 'Take photo'), c = el('button', 'btn', 'Camera roll');
-  a.onclick = function () { pick(type === 'video' ? 'fVidCam' : 'fCam', name); };
-  c.onclick = function () { pick(type === 'video' ? 'fVidRoll' : 'fRoll', name); };
-  r.appendChild(a); r.appendChild(c); s.appendChild(r);
-  var p = el('div', 'prog'); p.id = 'prog_' + type; s.appendChild(p);
-  if (type === 'video' && saved()) {
-    var k = saved(), cb = el('button', 'btn', 'Carry on: ' + k.name + ' (' + mb(k.size) + ')');
-    cb.onclick = function () { pick('fVidRoll', name, true); }; s.appendChild(cb);
-  }
-  return s;
+function slate() {
+  var i = st.info, ini = String(i.who.name || '').split(/\s+/).map(function (x) { return x.charAt(0).toUpperCase(); }).join('');
+  var s = $('slate'); s.innerHTML = '';
+  s.appendChild(el('div', 'v', 'K' + VAN));
+  s.appendChild(el('div', 'l', 'Check out ' + (i.today || '')));
+  s.appendChild(el('div', 'l', 'Team member ' + ini));
+  if (i.pickup && i.pickup.found) s.appendChild(el('div', 'l', 'Reservation ' + i.pickup.res));
+  s.appendChild(el('div', 'x', 'Film this first. Tap anywhere to close.'));
+  s.style.display = 'flex';
 }
-function pick(inputId, sectionName, resume) {
+function section(s) {
+  var box = el('div', 'sec' + (s.done ? ' done' : '')); box.id = 'sec_' + key(s.name);
+  var unit = s.type === 'video' ? ' video' : ' photo';
+  box.appendChild(el('h2', '', (s.done ? '✓ ' : '') + s.name));
+  box.appendChild(el('div', 'cnt', s.have + ' of ' + s.need + unit + 's' + (s.parts.length ? '' : (s.have > s.need ? ' (more is fine)' : ''))));
+  if (s.note) { var d = el('details'); d.appendChild(el('summary', '', 'How to')); d.appendChild(el('div', '', s.note)); box.appendChild(d); }
+  if (s.parts.length) {
+    s.parts.forEach(function (pt) {
+      var row = el('div', 'part');
+      row.appendChild(el('b', '', (pt.have >= pt.need ? '✓ ' : '') + pt.name + ': ' + pt.have + ' of ' + pt.need));
+      row.appendChild(buttons(s, pt.name, true));
+      var pr = el('div', 'prog'); pr.id = 'prog_' + key(s.name) + '_' + key(pt.name); row.appendChild(pr);
+      box.appendChild(row);
+    });
+  } else {
+    box.appendChild(buttons(s, '', false));
+    var pr = el('div', 'prog'); pr.id = 'prog_' + key(s.name) + '_'; box.appendChild(pr);
+  }
+  if (s.type === 'video' && saved(s.name)) {
+    var k = saved(s.name), cb = el('button', 'btn', 'Carry on: ' + k.name + ' (' + mb(k.size) + ')');
+    cb.onclick = function () { pick('fVidRoll', s, '', true); }; box.appendChild(cb);
+  }
+  return box;
+}
+function buttons(s, spot, small) {
+  var r = el('div', 'row'), cls = small ? ' small' : '';
+  var a = el('button', 'btn primary' + cls, s.type === 'video' ? 'Record video' : 'Take photo'), c = el('button', 'btn' + cls, 'Camera roll');
+  a.onclick = function () { pick(s.type === 'video' ? 'fVidCam' : 'fCam', s, spot); };
+  c.onclick = function () { pick(s.type === 'video' ? 'fVidRoll' : 'fRoll', s, spot); };
+  r.appendChild(a); r.appendChild(c); return r;
+}
+function pick(inputId, s, spot, resume) {
   if (st.busy) { err('Wait for the upload to finish.'); return; }
   var inp = $(inputId); inp.value = '';
   inp.onchange = function () {
     var files = Array.prototype.slice.call(inp.files || []); if (!files.length) return;
-    if (/^video\//.test(files[0].type) || /\.(mov|mp4|m4v)$/i.test(files[0].name)) runVideo(files[0], sectionName, !!resume);
-    else runPhotos(files, sectionName);
+    if (s.type === 'video') runVideo(files[0], s.name, !!resume);
+    else runPhotos(files, s.name, spot);
   };
   inp.click();
 }
 
-/* ---------- photos: shrink on the phone, one piece each ---------- */
+/* ---------- photos: shrink on the phone, ONE call each (speed fix, 26 Nov) ---------- */
 function shrink(file) {
   return new Promise(function (ok) {
     var img = new Image(), url = URL.createObjectURL(file);
@@ -156,39 +197,43 @@ function shrink(file) {
     img.src = url;
   });
 }
-function runPhotos(files, sectionName) {
-  st.busy = true; err(''); var p = $('prog_photo'), done = 0, t0 = Date.now(), sent = 0;
+function runPhotos(files, sectionName, spot) {
+  st.busy = true; err(''); var p = $('prog_' + key(sectionName) + '_' + key(spot)), done = 0, t0 = Date.now(), sent = 0;
   p.innerHTML = ''; var line = el('div', '', ''), bar = el('div', 'bar'), fill = el('i'); bar.appendChild(fill); p.appendChild(line); p.appendChild(bar);
   var next = function (k) {
     if (k >= files.length) { st.busy = false; line.textContent = done + ' of ' + files.length + ' photos saved, ' + mb(sent) + ' in ' + secs(Date.now() - t0) + '.'; setTimeout(load, 400); return; }
     line.textContent = 'Photo ' + (k + 1) + ' of ' + files.length + ': getting it ready';
+    var t1 = Date.now(), size = 0;
     shrink(files[k]).then(function (blob) {
+      size = blob.size;
       line.textContent = 'Photo ' + (k + 1) + ' of ' + files.length + ': uploading ' + mb(blob.size);
-      return upload(blob, { section: sectionName, mime: blob.type || files[k].type || 'image/jpeg', name: files[k].name || 'photo.jpg' }, function () {});
-    }).then(function (r) { done++; sent += r.size; fill.style.width = Math.round(done / files.length * 100) + '%'; next(k + 1); },
+      return toB64(blob).then(function (b64) {
+        return api('staffMediaPhoto', [st.tok, VAN, { section: sectionName, spot: spot, mime: blob.type || files[k].type || 'image/jpeg', name: files[k].name || 'photo.jpg', device: device() }, b64, { ms: Date.now() - t1 }]);
+      });
+    }).then(function () { done++; sent += size; fill.style.width = Math.round(done / files.length * 100) + '%'; next(k + 1); },
       function (e) { st.busy = false; err('Photo ' + (k + 1) + ' did not save: ' + e.message + ' Tap the button again to add it.'); });
   };
   next(0);
 }
 
 /* ---------- video: full quality, 4 MB pieces, carries on after a dropped signal ---------- */
-function saved() { try { return JSON.parse(localStorage.getItem('kmedia_up_' + VAN) || 'null'); } catch (e) { return null; } }
-function keep(o) { try { if (o) localStorage.setItem('kmedia_up_' + VAN, JSON.stringify(o)); else localStorage.removeItem('kmedia_up_' + VAN); } catch (e) {} }
+function saved(sec) { try { return JSON.parse(localStorage.getItem('kmedia_up_' + VAN + '_' + key(sec)) || 'null'); } catch (e) { return null; } }
+function keep(sec, o) { try { if (o) localStorage.setItem('kmedia_up_' + VAN + '_' + key(sec), JSON.stringify(o)); else localStorage.removeItem('kmedia_up_' + VAN + '_' + key(sec)); } catch (e) {} }
 function runVideo(file, sectionName, resume) {
-  st.busy = true; err(''); var p = $('prog_video'); p.innerHTML = '';
+  st.busy = true; err(''); var p = $('prog_' + key(sectionName) + '_'); p.innerHTML = '';
   var line = el('div', '', 'Video ' + mb(file.size) + ': starting'), bar = el('div', 'bar'), fill = el('i'); bar.appendChild(fill); p.appendChild(line); p.appendChild(bar);
-  var k = saved(), same = k && k.name === file.name && k.size === file.size;
+  var k = saved(sectionName), same = k && k.name === file.name && k.size === file.size;
   if (resume && !same) { st.busy = false; err('That is not the same video. Pick ' + (k ? k.name : 'the video you started') + '.'); return; }
   upload(file, { section: sectionName, mime: file.type || 'video/quicktime', name: file.name || 'video.mov' }, function (done, total, ms) {
     fill.style.width = Math.round(done / total * 100) + '%';
     var rate = ms > 0 ? (done / 1048576) / (ms / 1000) : 0;
     line.textContent = 'Video: ' + mb(done) + ' of ' + mb(total) + (rate ? ', ' + rate.toFixed(1) + ' MB/s' : '');
   }, same ? k : null).then(function (r) {
-    keep(null); st.busy = false; line.textContent = 'Video saved: ' + mb(r.size) + ' in ' + secs(r.ms) + '.'; setTimeout(load, 400);
+    keep(sectionName, null); st.busy = false; line.textContent = 'Video saved: ' + mb(r.size) + ' in ' + secs(r.ms) + '.'; setTimeout(load, 400);
   }, function (e) { st.busy = false; err('The video stopped: ' + e.message + ' Tap Carry on and pick the same video.'); render(); });
 }
 
-/* one file, any size: start (or carry on), then pieces until Drive says done */
+/* one video: start (or carry on), then pieces until Drive says done */
 function upload(blob, meta, onProg, carry) {
   var size = blob.size, t0 = Date.now() - (carry && carry.ms ? carry.ms : 0), job;
   var go = function (offset) {
@@ -198,7 +243,7 @@ function upload(blob, meta, onProg, carry) {
       return api('staffMediaChunk', [st.tok, job.id, b64, offset, { ms: Date.now() - t0 }]);
     }).then(function (r) {
       if (r.done) return { size: size, ms: Date.now() - t0 };
-      if (meta.section === 'Exterior video') keep({ id: job.id, chunk: job.chunk, name: blob.name, size: size, ms: Date.now() - t0 });
+      keep(meta.section, { id: job.id, chunk: job.chunk, name: blob.name, size: size, ms: Date.now() - t0 });
       onProg(r.next, size, Date.now() - t0);
       return go(r.next);
     });
@@ -209,21 +254,37 @@ function upload(blob, meta, onProg, carry) {
   }
   return api('staffMediaStart', [st.tok, VAN, { section: meta.section, mime: meta.mime, size: size, name: meta.name, device: device() }]).then(function (s) {
     job = { id: s.id, chunk: s.chunk };
-    if (meta.section === 'Exterior video') keep({ id: job.id, chunk: job.chunk, name: blob.name, size: size, ms: 0 });
+    keep(meta.section, { id: job.id, chunk: job.chunk, name: blob.name, size: size, ms: 0 });
     return go(0);
   });
 }
 function toB64(b) { return new Promise(function (ok, no) { var r = new FileReader(); r.onload = function () { ok(String(r.result).split(',')[1] || ''); }; r.onerror = function () { no(new Error('Could not read the file.')); }; r.readAsDataURL(b); }); }
 
 /* ---------- mock (layout check, nothing sent) ---------- */
-var mk = { n: { 'Exterior': 0, 'Exterior video': 0 }, last: [], up: {} };
+var MK_PLAN = [['Roof', 'photo', 8], ['Exterior', 'photo', 0, [['Windshield', 3], ['Front', 3], ['Driver side', 4], ['Rear', 3], ['Passenger side', 4]]],
+  ['Bumper corners', 'photo', 0, [['Front left', 1], ['Front right', 1], ['Rear left', 1], ['Rear right', 1]]], ['Cargo', 'photo', 3], ['Dash', 'photo', 1],
+  ['VCR pages', 'photo', 0, [['VCR page 1', 1], ['VCR page 2', 1], ['VCR page 3', 1]]], ['Exterior video', 'video', 1], ['Interior video', 'video', 1]];
+var mk = { rows: [], last: [], up: {} };
+function mkPlan() {
+  var out = MK_PLAN.map(function (p) {
+    var rs = mk.rows.filter(function (r) { return r.section === p[0]; }), parts = (p[3] || []).map(function (z) { return { name: z[0], need: z[1], have: rs.filter(function (r) { return r.spot === z[0]; }).length }; });
+    var need = parts.length ? parts.reduce(function (a, x) { return a + x.need; }, 0) : p[2];
+    var done = parts.length ? parts.every(function (x) { return x.have >= x.need; }) : rs.length >= p[2];
+    return { name: p[0], type: p[1], need: need, have: rs.length, done: done, parts: parts, note: 'Mock note for ' + p[0] + '.' };
+  });
+  return out;
+}
 function mockApi(fn, a) {
-  return new Promise(function (ok) { setTimeout(function () {
-    if (fn === 'staffMediaInfo') return ok({ ok: true, who: { name: 'Test', role: 'Owner', lead: true }, van: VAN, open: VAN === '999', sections: ['Exterior', 'Exterior video'], counts: mk.n, last: mk.last, chunk: 4194304 });
+  return new Promise(function (ok, no) { setTimeout(function () {
+    if (fn === 'staffMediaInfo') { var pl = mkPlan(); return ok({ ok: true, who: { name: 'Test Person', role: 'Owner', lead: true }, van: VAN, open: VAN === '999', plan: pl,
+      doneCount: pl.filter(function (s) { return s.done; }).length, total: 8, last: mk.last, chunk: 4194304, today: '2026-11-26',
+      pickup: { found: true, res: '999001', ok: false, text: 'Pickup 2026-11-30 12:00 (reservation 999001): in 86 hours. Too early: photos must be within 48 hours of pickup.' } }); }
+    if (fn === 'staffMediaPhoto') { var m = a[2], n = Math.round(a[3].length * 3 / 4); mk.rows.push({ section: m.section, spot: m.spot }); mk.last.unshift({ section: m.section, spot: m.spot, bytes: n, ms: 300, at: 'now', by: 'Test' }); return ok({ ok: true, done: true, captureId: 'MC-MOCK' }); }
     if (fn === 'staffMediaStart') { var id = 'MU-' + Date.now(); mk.up[id] = a[2]; return ok({ ok: true, id: id, chunk: 4194304 }); }
-    if (fn === 'staffMediaChunk') { var m = mk.up[a[1]], n = a[3] + Math.round(a[2].length * 3 / 4); if (n >= m.size) { mk.n[m.section]++; mk.last.unshift({ section: m.section, bytes: m.size, ms: a[4].ms, at: 'now', by: 'Test' }); return ok({ ok: true, done: true }); } return ok({ ok: true, done: false, next: n }); }
+    if (fn === 'staffMediaChunk') { var u = mk.up[a[1]], nx = a[3] + Math.round(a[2].length * 3 / 4); if (nx >= u.size) { mk.rows.push({ section: u.section, spot: '' }); mk.last.unshift({ section: u.section, bytes: u.size, ms: a[4].ms, at: 'now', by: 'Test' }); return ok({ ok: true, done: true }); } return ok({ ok: true, done: false, next: nx }); }
     if (fn === 'staffMediaResume') return ok({ ok: true, done: false, next: 0 });
-  }, 150); });
+    no(new Error('mock: unknown ' + fn));
+  }, 120); });
 }
 
 if (!VAN) { $('body').appendChild(el('p', '', 'No van number. Open this page from Karma Ops or add ?van= and the number.')); }
